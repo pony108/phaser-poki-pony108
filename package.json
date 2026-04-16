@@ -1,0 +1,17 @@
+{
+  "name": "phaser-poki-starter",
+  "version": "1.0.0",
+  "description": "Phaser 3 + TypeScript + Vite starter template with Poki SDK integration",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@poki/phaser-3": "^0.0.5",
+    "phaser": "^3.80.1",
+    "typescript": "^5.4.5",
+    "vite": "^5.2.11"
+  }
+}
