@@ -86,5 +86,6 @@ export const SAVE_KEYS = {
   highScore: 'high_score',
   muted: 'muted',
   sfxVolume: 'sfx_volume',
-  musicVolume: 'music_volume'
+  musicVolume: 'music_volume',
+  completedCleans: 'completed_cleans'
 } as const

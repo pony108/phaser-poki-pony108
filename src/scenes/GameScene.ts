@@ -1,452 +1,387 @@
-/**
- * GameScene.ts
- * Core gameplay scene — placeholder loop with all systems wired up.
- *
- * Poki: PokiPlugin automatically fires gameplayStart when this scene
- * starts and gameplayStop when it stops. No manual SDK calls needed
- * for those events.
- *
- * ── What's implemented (placeholder) ────────────────────────────────────────
- *   • Player sprite controlled by touch/mouse drag or keyboard arrows
- *   • Enemies spawn from the top, fall downward
- *   • Collision with enemy → lose a life → game over
- *   • Coins spawn periodically → collect for points
- *   • Score and lives HUD
- *   • Pause on Escape key
- *
- * ── What to replace for your specific game ──────────────────────────────────
- *   • Player movement logic
- *   • SpawnSystem callbacks (create your actual game objects)
- *   • Collision handlers
- *   • Win/lose conditions
- */
-
-import { ScoreSystem } from '../systems/ScoreSystem'
-import { DifficultySystem } from '../systems/DifficultySystem'
-import { SpawnSystem } from '../systems/SpawnSystem'
 import { AudioManager } from '../core/AudioManager'
 import { config } from '../core/Config'
 import { GAME_CONFIG } from '../data/gameConfig'
 import { BALANCING } from '../data/balancing'
 import { formatScore } from '../utils/helpers'
+import { SaveManager, SAVE_KEYS } from '../core/SaveManager'
 
 const CX = GAME_CONFIG.width / 2
+const CY = GAME_CONFIG.height / 2
 
 export class GameScene extends Phaser.Scene {
-  // ── Systems ────────────────────────────────────────────────────────────────
-  private scoreSystem!: ScoreSystem
-  private difficultySystem!: DifficultySystem
-  private spawnSystem!: SpawnSystem
+  private dirtRT!: Phaser.GameObjects.RenderTexture
+  private brush!: Phaser.GameObjects.Graphics
 
-  // ── Game Objects ──────────────────────────────────────────────────────────
-  private player!: Phaser.Physics.Arcade.Sprite
-  private enemies!: Phaser.Physics.Arcade.Group
-  private coins!: Phaser.Physics.Arcade.Group
+  // UI
+  private progressText!: Phaser.GameObjects.Text
+  private timerText!: Phaser.GameObjects.Text
+  private toolIcons: Record<string, Phaser.GameObjects.Image> = {}
+  
+  // Particles
+  private effectEmitter!: Phaser.GameObjects.Particles.ParticleEmitter
+  private sparkleEmitter!: Phaser.GameObjects.Particles.ParticleEmitter
 
-  // ── HUD ───────────────────────────────────────────────────────────────────
-  private scoreText!: Phaser.GameObjects.Text
-  private livesText!: Phaser.GameObjects.Text
-  private pauseOverlay!: Phaser.GameObjects.Container
+  // Game State
+  private activeTool: keyof typeof BALANCING.tools = 'widesponge'
+  private grid: boolean[][] = []
+  private CELL_SIZE = 10
+  private totalCells = 0
+  private cleanCells = 0
+  private timeElapsedMs = 0
+  private dragTimeMs = 0
+  private wasteTimeMs = 0
+  private isFinished = false
+  private maskLeft = 0
+  private maskTop = 0
+  private prevPointerX = 0
+  private prevPointerY = 0
 
-  // ── State ─────────────────────────────────────────────────────────────────
-  private lives: number = BALANCING.startingLives
-  private isPaused: boolean = false
-  private isGameOver: boolean = false
-
-  // ── Input ─────────────────────────────────────────────────────────────────
-  private cursors!: Phaser.Types.Input.Keyboard.CursorKeys
-  private wasdKeys!: {
-    up: Phaser.Input.Keyboard.Key
-    down: Phaser.Input.Keyboard.Key
-    left: Phaser.Input.Keyboard.Key
-    right: Phaser.Input.Keyboard.Key
-  }
-  private escapeKey!: Phaser.Input.Keyboard.Key
-  private pointerX: number = CX
-  private pointerDown: boolean = false
-
-  // ── Spawn Entries (kept to update interval dynamically) ───────────────────
-  private enemySpawnEntry!: ReturnType<SpawnSystem['schedule']>
-  private coinSpawnEntry!: ReturnType<SpawnSystem['schedule']>
+  private vehicleType = 0
 
   constructor() {
     super({ key: 'GameScene' })
   }
 
-  // ─── Lifecycle ─────────────────────────────────────────────────────────────
-
   create(): void {
     this.cameras.main.setBackgroundColor(config.game.backgroundColor)
     this.cameras.main.fadeIn(BALANCING.sceneFadeDuration, 0, 0, 0)
 
-    // Reset state
-    this.lives = BALANCING.startingLives
-    this.isPaused = false
-    this.isGameOver = false
+    // Select vehicle based on completed cleans
+    const completed = SaveManager.load(SAVE_KEYS.completedCleans, 0)
+    if (completed >= 10) this.vehicleType = Phaser.Math.Between(0, 4)
+    else if (completed >= 5) this.vehicleType = Phaser.Math.Between(0, 3)
+    else if (completed >= 3) this.vehicleType = Phaser.Math.Between(0, 2)
+    else if (completed >= 1) this.vehicleType = Phaser.Math.Between(0, 1)
+    else this.vehicleType = 0
 
-    // Init systems
-    this.scoreSystem = new ScoreSystem()
-    this.difficultySystem = new DifficultySystem()
-    this.spawnSystem = new SpawnSystem()
+    this.isFinished = false
+    this.timeElapsedMs = 0
+    this.dragTimeMs = 0
+    this.wasteTimeMs = 0
+    this.activeTool = 'widesponge'
 
     this.createWorld()
-    this.createPlayer()
-    this.createGroups()
+    this.createVehicleAndDirt()
+    this.createParticles()
     this.createHUD()
-    this.createPauseOverlay()
-    this.setupPhysics()
+    this.createToolsUI()
     this.setupInput()
-    this.setupSpawning()
 
-    // TODO: analytics hook — gameplay_started
+    this.brush = this.make.graphics()
+    this.updateBrush()
   }
 
-  update(_time: number, delta: number): void {
-    if (this.isGameOver || this.isPaused) return
-
-    this.difficultySystem.update(delta)
-
-    // Dynamically update spawn intervals based on current difficulty
-    this.enemySpawnEntry.intervalMs = this.difficultySystem.getCurrentSpawnInterval()
-    this.coinSpawnEntry.intervalMs = this.difficultySystem.getCurrentSpawnInterval() * 1.5
-
-    this.spawnSystem.tick(delta)
-    this.updatePlayerMovement()
-    this.cleanupOffscreenObjects()
+  update(time: number, delta: number): void {
+    if (this.isFinished) return
+    this.timeElapsedMs += delta
+    this.timerText.setText(`${Math.floor(this.timeElapsedMs / 1000)}s`)
   }
-
-  // ─── World ────────────────────────────────────────────────────────────────
 
   private createWorld(): void {
-    // Gradient background (replace with tilemaps / parallax layers)
+    // A nice concrete/driveway background
     const bg = this.add.graphics()
-    bg.fillGradientStyle(0x1a1a2e, 0x1a1a2e, 0x16213e, 0x16213e, 1)
+    bg.fillStyle(0x34495e, 1)
     bg.fillRect(0, 0, GAME_CONFIG.width, GAME_CONFIG.height)
-    bg.setDepth(0)
+    
+    // Add some driveway stripes / water drains
+    bg.lineStyle(4, 0x2c3e50, 0.5)
+    bg.beginPath()
+    bg.moveTo(CX - 150, 0)
+    bg.lineTo(CX - 150, GAME_CONFIG.height)
+    bg.moveTo(CX + 150, 0)
+    bg.lineTo(CX + 150, GAME_CONFIG.height)
+    bg.strokePath()
   }
 
-  // ─── Player ───────────────────────────────────────────────────────────────
+  private createVehicleAndDirt(): void {
+    const vKey = `vehicle_${this.vehicleType}`
+    
+    // Calculate size
+    let vw = 180
+    let vh = 340
+    if (this.vehicleType === 1) { vw += 20; vh += 40 } // SUV
+    if (this.vehicleType === 3) { vw += 30; vh += 60 } // Truck
+    
+    this.maskLeft = CX - vw / 2
+    this.maskTop = CY - 80 - vh / 2
 
-  private createPlayer(): void {
-    const spawnX = CX
-    const spawnY = GAME_CONFIG.height - 120
+    // Shadow
+    const shadow = this.add.graphics()
+    shadow.fillStyle(0x000000, 0.4)
+    shadow.fillRoundedRect(this.maskLeft + 10, this.maskTop + 10, vw, vh, 20)
 
-    this.player = this.physics.add.sprite(spawnX, spawnY, 'player')
-    this.player.setCollideWorldBounds(true)
-    this.player.setDepth(10)
-
-    // Constrain player to bottom third of screen vertically
-    this.player.setMaxVelocity(BALANCING.playerSpeed, 0)
-  }
-
-  private updatePlayerMovement(): void {
-    const speed = BALANCING.playerSpeed
-    let vx = 0
-
-    // ── Keyboard ────────────────────────────────────────────────────────────
-    const leftDown =
-      this.cursors.left.isDown || this.wasdKeys.left.isDown
-    const rightDown =
-      this.cursors.right.isDown || this.wasdKeys.right.isDown
-
-    if (leftDown) vx = -speed
-    else if (rightDown) vx = speed
-
-    // ── Touch / Pointer ──────────────────────────────────────────────────────
-    if (this.pointerDown && !leftDown && !rightDown) {
-      const diff = this.pointerX - this.player.x
-      if (Math.abs(diff) > 8) {
-        vx = Math.sign(diff) * speed
+    // Vehicle Base
+    const vehicle = this.add.sprite(CX, CY - 80, vKey)
+    
+    // Dirt mask: Render texture sizes exactly over vehicle
+    this.dirtRT = this.add.renderTexture(this.maskLeft, this.maskTop, vw, vh)
+    
+    // Fill dirt
+    const dirtGen = this.make.graphics()
+    
+    let dirtColor1 = 0x8c7b70
+    let dirtColor2 = 0x5e524a
+    
+    if (this.vehicleType === 0) {
+      // Even dust
+      dirtGen.fillStyle(0x999999, 0.9)
+      dirtGen.fillRect(0, 0, vw, vh)
+    } else {
+      // Blobs and mud
+      dirtGen.fillStyle(dirtColor1, 0.9)
+      dirtGen.fillRect(0, 0, vw, vh)
+      
+      dirtGen.fillStyle(dirtColor2, 0.95)
+      for (let i = 0; i < 60; i++) {
+        const x = Phaser.Math.Between(0, vw)
+        const y = Phaser.Math.Between(0, vh)
+        const r = Phaser.Math.Between(10, 40)
+        dirtGen.fillCircle(x, y, r)
       }
     }
+    
+    this.dirtRT.draw(dirtGen, 0, 0)
+    dirtGen.destroy()
 
-    this.player.setVelocityX(vx)
-  }
-
-  // ─── Groups ───────────────────────────────────────────────────────────────
-
-  private createGroups(): void {
-    this.enemies = this.physics.add.group({
-      maxSize: 30,
-      runChildUpdate: false
-    })
-
-    this.coins = this.physics.add.group({
-      maxSize: 10,
-      runChildUpdate: false
-    })
-  }
-
-  // ─── Physics / Collisions ─────────────────────────────────────────────────
-
-  private setupPhysics(): void {
-    // Player ↔ Enemy
-    this.physics.add.overlap(
-      this.player,
-      this.enemies,
-      this.handlePlayerHitEnemy as Phaser.Types.Physics.Arcade.ArcadePhysicsCallback,
-      undefined,
-      this
-    )
-
-    // Player ↔ Coin
-    this.physics.add.overlap(
-      this.player,
-      this.coins,
-      this.handlePlayerCollectCoin as Phaser.Types.Physics.Arcade.ArcadePhysicsCallback,
-      undefined,
-      this
-    )
-  }
-
-  private handlePlayerHitEnemy(
-    _player: Phaser.GameObjects.GameObject,
-    enemy: Phaser.GameObjects.GameObject
-  ): void {
-    enemy.destroy()
-    this.lives--
-    this.updateHUD()
-
-    // Flash the player red
-    this.tweens.add({
-      targets: this.player,
-      alpha: 0.3,
-      duration: 80,
-      yoyo: true,
-      repeat: 3,
-      onComplete: () => this.player.setAlpha(1)
-    })
-
-    AudioManager.playSfx(this, 'sfx_hurt')
-
-    if (this.lives <= 0) {
-      this.triggerGameOver()
+    // Initialize tracking grid
+    this.grid = []
+    this.totalCells = 0
+    this.cleanCells = 0
+    
+    const cols = Math.ceil(vw / this.CELL_SIZE)
+    const rows = Math.ceil(vh / this.CELL_SIZE)
+    
+    for (let r = 0; r < rows; r++) {
+      this.grid[r] = []
+      for (let c = 0; c < cols; c++) {
+        this.grid[r][c] = false // not clean
+        this.totalCells++
+      }
     }
   }
 
-  private handlePlayerCollectCoin(
-    _player: Phaser.GameObjects.GameObject,
-    coin: Phaser.GameObjects.GameObject
-  ): void {
-    coin.destroy()
-    this.scoreSystem.add(BALANCING.pointsPerEvent)
-    this.updateHUD()
-
-    AudioManager.playSfx(this, 'sfx_score')
-
-    // TODO: analytics hook — coin_collected, score: this.scoreSystem.getScore()
-  }
-
-  // ─── Spawning ─────────────────────────────────────────────────────────────
-
-  private setupSpawning(): void {
-    // Enemy spawner
-    this.enemySpawnEntry = this.spawnSystem.schedule(
-      () => this.spawnEnemy(),
-      BALANCING.initialSpawnInterval
-    )
-
-    // Coin spawner (less frequent than enemies)
-    this.coinSpawnEntry = this.spawnSystem.schedule(
-      () => this.spawnCoin(),
-      BALANCING.initialSpawnInterval * 1.5
-    )
-  }
-
-  private spawnEnemy(): void {
-    const x = Phaser.Math.Between(30, GAME_CONFIG.width - 30)
-    const enemy = this.enemies.get(x, -20, 'enemy') as Phaser.Physics.Arcade.Sprite | null
-    if (!enemy) return
-
-    enemy.setActive(true)
-    enemy.setVisible(true)
-    enemy.setPosition(x, -20)
-    enemy.setDepth(5)
-
-    const speed = 150 + this.difficultySystem.getDifficultyMultiplier() * 50
-    enemy.setVelocityY(speed)
-    enemy.setVelocityX(Phaser.Math.Between(-40, 40))
-  }
-
-  private spawnCoin(): void {
-    const x = Phaser.Math.Between(30, GAME_CONFIG.width - 30)
-    const coin = this.coins.get(x, -20, 'coin') as Phaser.Physics.Arcade.Sprite | null
-    if (!coin) return
-
-    coin.setActive(true)
-    coin.setVisible(true)
-    coin.setPosition(x, -20)
-    coin.setDepth(5)
-    coin.setVelocityY(120)
-  }
-
-  private cleanupOffscreenObjects(): void {
-    const bottom = GAME_CONFIG.height + 60
-
-    this.enemies.getChildren().forEach((obj) => {
-      const sprite = obj as Phaser.Physics.Arcade.Sprite
-      if (sprite.active && sprite.y > bottom) {
-        sprite.destroy()
-      }
+  private createParticles(): void {
+    this.effectEmitter = this.add.particles(0, 0, 'particle', {
+      speed: { min: 20, max: 60 },
+      alpha: { start: 1, end: 0 },
+      scale: { start: 1, end: 0.5 },
+      lifespan: 400,
+      frequency: -1 // Manual emit
     })
+    this.effectEmitter.setDepth(20)
 
-    this.coins.getChildren().forEach((obj) => {
-      const sprite = obj as Phaser.Physics.Arcade.Sprite
-      if (sprite.active && sprite.y > bottom) {
-        sprite.destroy()
-      }
+    this.sparkleEmitter = this.add.particles(0, 0, 'sparkle', {
+      speed: { min: 50, max: 200 },
+      angle: { min: 0, max: 360 },
+      scale: { start: 1.5, end: 0 },
+      alpha: { start: 1, end: 0 },
+      lifespan: 1500,
+      gravityY: 100,
+      frequency: -1
     })
+    this.sparkleEmitter.setDepth(50)
   }
-
-  // ─── HUD ──────────────────────────────────────────────────────────────────
 
   private createHUD(): void {
-    // Score
-    this.scoreText = this.add
-      .text(CX, 30, 'Score: 0', {
-        fontSize: '22px',
-        fontFamily: 'Arial, sans-serif',
-        color: '#ffffff',
-        fontStyle: 'bold',
-        resolution: 2
-      })
-      .setOrigin(0.5, 0)
-      .setDepth(20)
+    const barW = GAME_CONFIG.width - 40
+    
+    // Progress Bar Track
+    this.add.rectangle(CX, 30, barW, 20, 0x16213e).setOrigin(0.5)
+    
+    // Progress Label
+    this.progressText = this.add.text(CX, 30, '0%', {
+      fontFamily: 'Arial, sans-serif',
+      fontSize: '14px',
+      color: '#ffffff',
+      fontStyle: 'bold'
+    }).setOrigin(0.5)
 
-    // Lives
-    this.livesText = this.add
-      .text(GAME_CONFIG.width - 16, 16, `❤️ ${this.lives}`, {
-        fontSize: '20px',
-        fontFamily: 'Arial, sans-serif',
-        color: '#e74c3c',
-        resolution: 2
-      })
-      .setOrigin(1, 0)
-      .setDepth(20)
+    // Timer
+    this.timerText = this.add.text(20, 50, '0s', {
+      fontFamily: 'Arial, sans-serif',
+      fontSize: '20px',
+      color: '#ffffff',
+      fontStyle: 'bold'
+    }).setOrigin(0, 0)
+  }
 
-    // Mute indicator (top left)
-    const muteIndicator = this.add
-      .text(16, 16, AudioManager.muted ? '🔇' : '🔊', {
-        fontSize: '24px',
-        resolution: 2
-      })
-      .setDepth(20)
-      .setInteractive({ useHandCursor: true })
+  private createToolsUI(): void {
+    const toolKeys = Object.keys(BALANCING.tools) as Array<keyof typeof BALANCING.tools>
+    const spacing = 100
+    const startX = CX - ((toolKeys.length - 1) * spacing) / 2
+    
+    toolKeys.forEach((key, idx) => {
+      const x = startX + (idx * spacing)
+      const y = GAME_CONFIG.height - 70
+      
+      const conf = BALANCING.tools[key]
+      
+      const bg = this.add.circle(x, y, 36, 0x16213e).setInteractive()
+      
+      const icon = this.add.image(x, y, 'tool_' + key).setScale(1.2)
+      this.toolIcons[key] = icon
+      
+      this.add.text(x, y + 40, conf.name, {
+        fontSize: '10px',
+        color: '#aaaacc',
+        fontFamily: 'Arial, sans-serif'
+      }).setOrigin(0.5)
 
-    muteIndicator.on('pointerdown', () => {
-      AudioManager.toggleMute()
-      muteIndicator.setText(AudioManager.muted ? '🔇' : '🔊')
+      bg.on('pointerdown', () => {
+        this.activeTool = key
+        this.updateToolHighlight()
+        this.updateBrush()
+      })
+    })
+
+    this.updateToolHighlight()
+  }
+
+  private updateToolHighlight(): void {
+    Object.keys(this.toolIcons).forEach(key => {
+      if (key === this.activeTool) {
+        this.toolIcons[key].setScale(1.4)
+        this.toolIcons[key].setAlpha(1.0)
+      } else {
+        this.toolIcons[key].setScale(1.0)
+        this.toolIcons[key].setAlpha(0.5)
+      }
     })
   }
 
-  private updateHUD(): void {
-    this.scoreText.setText(`Score: ${formatScore(this.scoreSystem.getScore())}`)
-    this.livesText.setText(`❤️ ${this.lives}`)
+  private updateBrush(): void {
+    this.brush.clear()
+    const radius = BALANCING.tools[this.activeTool].radius
+    this.brush.fillStyle(0xffffff, BALANCING.tools[this.activeTool].strength) // Alpha acts as strength in erase blend mode if we used partial opacity, but Phaser RT erase is binary unless using specialized shaders, so we'll just do a hard circle and rely on manual speed tracking for "strength".
+    this.brush.fillCircle(radius, radius, radius)
   }
-
-  // ─── Pause ────────────────────────────────────────────────────────────────
-
-  private createPauseOverlay(): void {
-    this.pauseOverlay = this.add.container(0, 0)
-    this.pauseOverlay.setDepth(50)
-    this.pauseOverlay.setVisible(false)
-
-    // Dimmer
-    const dim = this.add.rectangle(
-      CX,
-      GAME_CONFIG.height / 2,
-      GAME_CONFIG.width,
-      GAME_CONFIG.height,
-      0x000000,
-      0.6
-    )
-    const pauseText = this.add
-      .text(CX, GAME_CONFIG.height / 2 - 40, 'PAUSED', {
-        fontSize: '40px',
-        fontFamily: 'Arial, sans-serif',
-        color: '#ffffff',
-        fontStyle: 'bold',
-        resolution: 2
-      })
-      .setOrigin(0.5)
-
-    const resumeHint = this.add
-      .text(CX, GAME_CONFIG.height / 2 + 20, 'Press Escape to resume', {
-        fontSize: '18px',
-        fontFamily: 'Arial, sans-serif',
-        color: '#aaaacc',
-        resolution: 2
-      })
-      .setOrigin(0.5)
-
-    this.pauseOverlay.add([dim, pauseText, resumeHint])
-  }
-
-  private togglePause(): void {
-    this.isPaused = !this.isPaused
-    this.pauseOverlay.setVisible(this.isPaused)
-    this.spawnSystem.isPaused ? this.spawnSystem.resume() : this.spawnSystem.pause()
-    this.physics.world.isPaused ? this.physics.resume() : this.physics.pause()
-  }
-
-  // ─── Input ────────────────────────────────────────────────────────────────
 
   private setupInput(): void {
-    this.cursors = this.input.keyboard!.createCursorKeys()
-    this.wasdKeys = {
-      up: this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.W),
-      down: this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.S),
-      left: this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.A),
-      right: this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.D)
-    }
-    this.escapeKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.ESC)
-    this.escapeKey.on('down', this.togglePause, this)
-
-    // Touch / pointer movement
     this.input.on(Phaser.Input.Events.POINTER_DOWN, (ptr: Phaser.Input.Pointer) => {
-      this.pointerDown = true
-      this.pointerX = ptr.x
+      if (this.isFinished) return
+      this.prevPointerX = ptr.x
+      this.prevPointerY = ptr.y
+      this.handleWipe(ptr.x, ptr.y)
     })
+
     this.input.on(Phaser.Input.Events.POINTER_MOVE, (ptr: Phaser.Input.Pointer) => {
-      if (ptr.isDown) this.pointerX = ptr.x
-    })
-    this.input.on(Phaser.Input.Events.POINTER_UP, () => {
-      this.pointerDown = false
+      if (!ptr.isDown || this.isFinished) return
+      
+      // Interpolate line between previous and current pointer for continuous brushing
+      const dist = Phaser.Math.Distance.Between(this.prevPointerX, this.prevPointerY, ptr.x, ptr.y)
+      const steps = Math.max(1, Math.floor(dist / 10))
+      
+      for (let i = 0; i <= steps; i++) {
+        const tx = Phaser.Math.Interpolation.Linear([this.prevPointerX, ptr.x], i / steps)
+        const ty = Phaser.Math.Interpolation.Linear([this.prevPointerY, ptr.y], i / steps)
+        this.handleWipe(tx, ty)
+      }
+
+      this.prevPointerX = ptr.x
+      this.prevPointerY = ptr.y
+      
+      // Emit particles
+      const rad = BALANCING.tools[this.activeTool].radius
+      this.effectEmitter.emitParticleAt(ptr.x + Phaser.Math.Between(-rad/2, rad/2), ptr.y + Phaser.Math.Between(-rad/2, rad/2))
     })
   }
 
-  // ─── Game Over ────────────────────────────────────────────────────────────
+  private handleWipe(x: number, y: number): void {
+    // Record dragging time for efficiency calc
+    this.dragTimeMs += this.game.loop.delta
+    
+    // Relative coordinates to the render texture
+    const localX = x - this.maskLeft
+    const localY = y - this.maskTop
 
-  private triggerGameOver(): void {
-    this.isGameOver = true
-    this.spawnSystem.clear()
-    this.physics.pause()
+    const radius = BALANCING.tools[this.activeTool].radius
 
-    // TODO: analytics hook — game_over, score: this.scoreSystem.getScore()
+    // Erase from visual mask
+    this.dirtRT.erase(this.brush, localX - radius, localY - radius)
 
-    this.cameras.main.shake(300, 0.012)
-    this.time.delayedCall(600, () => {
-      this.cameras.main.fadeOut(BALANCING.sceneFadeDuration, 0, 0, 0)
-      this.cameras.main.once(
-        Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE,
-        () => {
-          this.scene.start('ResultScene', {
-            score: this.scoreSystem.getScore(),
-            highScore: this.scoreSystem.getHighScore(),
-            isNewHighScore: this.scoreSystem.isNewHighScore()
-          })
+    // Update logical grid
+    let cellsCleanedNow = 0
+    
+    const startCol = Math.max(0, Math.floor((localX - radius) / this.CELL_SIZE))
+    const endCol = Math.min(this.grid[0].length - 1, Math.floor((localX + radius) / this.CELL_SIZE))
+    const startRow = Math.max(0, Math.floor((localY - radius) / this.CELL_SIZE))
+    const endRow = Math.min(this.grid.length - 1, Math.floor((localY + radius) / this.CELL_SIZE))
+
+    for (let r = startRow; r <= endRow; r++) {
+      for (let c = startCol; c <= endCol; c++) {
+        if (!this.grid[r][c]) {
+          // Check circular distance roughly
+          const cx = c * this.CELL_SIZE + this.CELL_SIZE / 2
+          const cy = r * this.CELL_SIZE + this.CELL_SIZE / 2
+          if (Phaser.Math.Distance.Between(cx, cy, localX, localY) <= radius) {
+            this.grid[r][c] = true
+            cellsCleanedNow++
+            this.cleanCells++
+          }
         }
-      )
-    })
+      }
+    }
+
+    if (cellsCleanedNow === 0) {
+      // Wiping an already clean area
+      this.wasteTimeMs += this.game.loop.delta
+    }
+
+    this.updateProgress()
   }
 
-  // ─── Cleanup ──────────────────────────────────────────────────────────────
+  private updateProgress(): void {
+    const pct = Math.min(100, Math.floor((this.cleanCells / this.totalCells) * 100))
+    this.progressText.setText(`${pct}%`)
 
-  shutdown(): void {
-    this.spawnSystem.clear()
-    this.escapeKey?.destroy()
-    this.input.off(Phaser.Input.Events.POINTER_DOWN)
-    this.input.off(Phaser.Input.Events.POINTER_MOVE)
-    this.input.off(Phaser.Input.Events.POINTER_UP)
+    // Simple milestone floating text can go here
+
+    if (pct >= 98 && !this.isFinished) {
+      this.triggerComplete()
+    }
+  }
+
+  private triggerComplete(): void {
+    this.isFinished = true
+    
+    // Wipe remaining mask instantly
+    this.dirtRT.clear()
+    
+    // Sparkle explosion
+    this.sparkleEmitter.explode(100, CX, CY - 80)
+    AudioManager.playSfx(this, 'sfx_score') // Triumphant
+
+    // Update save state
+    const currentCompleted = SaveManager.load(SAVE_KEYS.completedCleans, 0)
+    SaveManager.save(SAVE_KEYS.completedCleans, currentCompleted + 1)
+
+    // Calculate score
+    const seconds = this.timeElapsedMs / 1000
+    const timeBonus = Math.max(0.5, 2.0 - (seconds / 60))
+    const wasteFactor = this.dragTimeMs > 0 ? (this.wasteTimeMs / this.dragTimeMs) : 0
+    const toolEfficiency = 1.0 - (wasteFactor * 0.3)
+    
+    const finalScore = Math.floor(BALANCING.baseScore * timeBonus * toolEfficiency)
+
+    // Transition out
+    this.time.delayedCall(2000, () => {
+      this.cameras.main.fadeOut(BALANCING.sceneFadeDuration, 255, 255, 255)
+      this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
+        
+        let hs = SaveManager.load(SAVE_KEYS.highScore, 0)
+        let isNewHS = false
+        if (finalScore > hs) {
+          hs = finalScore
+          isNewHS = true
+          SaveManager.save(SAVE_KEYS.highScore, hs)
+        }
+
+        this.scene.start('ResultScene', {
+          score: finalScore,
+          highScore: hs,
+          isNewHighScore: isNewHS
+        })
+      })
+    })
   }
 }

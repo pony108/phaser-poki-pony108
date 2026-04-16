@@ -6,7 +6,7 @@
 
 export const GAME_CONFIG = {
   /** Display name shown in MenuScene title */
-  title: 'My Game',
+  title: 'Sparkle Wash',
 
   /** Canvas width in pixels — portrait 9:16 base resolution */
   width: 480,
@@ -15,7 +15,7 @@ export const GAME_CONFIG = {
   height: 854,
 
   /** CSS hex background color (also used as letterbox color) */
-  backgroundColor: '#1a1a2e',
+  backgroundColor: '#2b3036',
 
   /** Set true to show Phaser debug overlays and console logs */
   debug: false,

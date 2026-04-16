@@ -81,7 +81,7 @@ export class ResultScene extends Phaser.Scene {
 
     // "Game Over" header
     this.add
-      .text(CX, CY - 210, 'GAME OVER', {
+      .text(CX, CY - 210, 'ALL CLEAN!', {
         fontSize: '42px',
         fontFamily: 'Arial, sans-serif',
         color: '#e74c3c',
