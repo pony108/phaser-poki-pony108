@@ -43,6 +43,8 @@ export class GameScene extends Phaser.Scene {
   private isFinished = false
   private maskLeft = 0
   private maskTop = 0
+  private maskWidth = 0
+  private maskHeight = 0
   private prevPointerX = 0
   private prevPointerY = 0
 
@@ -120,6 +122,8 @@ export class GameScene extends Phaser.Scene {
 
     this.maskLeft = CX - vw / 2
     this.maskTop = CY - 80 - vh / 2
+    this.maskWidth = vw
+    this.maskHeight = vh
 
     // Shadow
     const shadow = this.add.graphics()
@@ -131,6 +135,7 @@ export class GameScene extends Phaser.Scene {
 
     // Dirt RenderTexture exactly overlays the vehicle
     this.dirtRT = this.add.renderTexture(this.maskLeft, this.maskTop, vw, vh)
+    this.dirtRT.setOrigin(0, 0)
     this.drawDirt(vw, vh)
 
     // Logical grid for % tracking
@@ -299,41 +304,74 @@ export class GameScene extends Phaser.Scene {
   private setupInput(): void {
     this.input.on(Phaser.Input.Events.POINTER_DOWN, (ptr: Phaser.Input.Pointer) => {
       if (this.isFinished) return
-      this.prevPointerX = ptr.x
-      this.prevPointerY = ptr.y
-      this.handleWipe(ptr.x, ptr.y)
+      const point = this.getPointerPosition(ptr)
+      this.prevPointerX = point.sceneX
+      this.prevPointerY = point.sceneY
+      this.handleWipe(point.localX, point.localY)
     })
 
     this.input.on(Phaser.Input.Events.POINTER_MOVE, (ptr: Phaser.Input.Pointer) => {
       if (!ptr.isDown || this.isFinished) return
 
-      const dist = Phaser.Math.Distance.Between(this.prevPointerX, this.prevPointerY, ptr.x, ptr.y)
+      const point = this.getPointerPosition(ptr)
+      const dist = Phaser.Math.Distance.Between(
+        this.prevPointerX,
+        this.prevPointerY,
+        point.sceneX,
+        point.sceneY
+      )
       const steps = Math.max(1, Math.floor(dist / 10))
 
       for (let i = 0; i <= steps; i++) {
-        const tx = Phaser.Math.Interpolation.Linear([this.prevPointerX, ptr.x], i / steps)
-        const ty = Phaser.Math.Interpolation.Linear([this.prevPointerY, ptr.y], i / steps)
-        this.handleWipe(tx, ty)
+        const tx = Phaser.Math.Interpolation.Linear([this.prevPointerX, point.sceneX], i / steps)
+        const ty = Phaser.Math.Interpolation.Linear([this.prevPointerY, point.sceneY], i / steps)
+        this.handleWipe(tx - this.maskLeft, ty - this.maskTop)
       }
 
-      this.prevPointerX = ptr.x
-      this.prevPointerY = ptr.y
+      this.prevPointerX = point.sceneX
+      this.prevPointerY = point.sceneY
 
       // Dirt-spray particles near pointer
       const rad = BALANCING.tools[this.activeTool].radius
       this.effectEmitter.emitParticleAt(
-        ptr.x + Phaser.Math.Between(-rad / 2, rad / 2),
-        ptr.y + Phaser.Math.Between(-rad / 2, rad / 2)
+        point.sceneX + Phaser.Math.Between(-rad / 2, rad / 2),
+        point.sceneY + Phaser.Math.Between(-rad / 2, rad / 2)
       )
     })
   }
 
+  private getPointerPosition(ptr: Phaser.Input.Pointer): {
+    sceneX: number
+    sceneY: number
+    localX: number
+    localY: number
+  } {
+    const camera = this.cameras.main
+    const cameraPosition = ptr.positionToCamera(camera) as Phaser.Math.Vector2
+    const sceneX = Number.isFinite(ptr.worldX) ? ptr.worldX : cameraPosition.x
+    const sceneY = Number.isFinite(ptr.worldY) ? ptr.worldY : cameraPosition.y
+
+    return {
+      sceneX,
+      sceneY,
+      localX: sceneX - this.maskLeft,
+      localY: sceneY - this.maskTop
+    }
+  }
+
   // ─── Wipe Logic ───────────────────────────────────────────────────────────
 
-  private handleWipe(x: number, y: number): void {
-    const localX = x - this.maskLeft
-    const localY = y - this.maskTop
+  private handleWipe(localX: number, localY: number): void {
     const radius = BALANCING.tools[this.activeTool].radius
+
+    if (
+      localX < -radius ||
+      localY < -radius ||
+      localX > this.maskWidth + radius ||
+      localY > this.maskHeight + radius
+    ) {
+      return
+    }
 
     // Visual erase
     this.dirtRT.erase(this.brush, localX - radius, localY - radius)
