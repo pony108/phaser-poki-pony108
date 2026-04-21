@@ -14,6 +14,7 @@ import { SaveManager, SAVE_KEYS } from '../core/SaveManager'
 import { config } from '../core/Config'
 import { GAME_CONFIG } from '../data/gameConfig'
 import { BALANCING } from '../data/balancing'
+import { TOTAL_LEVELS } from '../data/levels'
 
 const CX = GAME_CONFIG.width / 2
 const CY = GAME_CONFIG.height / 2
@@ -83,27 +84,62 @@ export class MenuScene extends Phaser.Scene {
   }
 
   private createButtons(): void {
-    // ── Play Button ──────────────────────────────────────────────────────────
-    new UIButton({
-      scene: this,
-      x: CX,
-      y: CY + 10,
-      width: 240,
-      height: 64,
-      label: 'PLAY',
-      fontSize: 26,
-      color: 0x4a90d9,
-      hoverColor: 0x5ba3f5,
-      pressColor: 0x357abd,
-      onClick: () => this.startGame()
-    })
+    const savedLevel = SaveManager.load<number>(SAVE_KEYS.currentLevel, 1)
+    const hasProgress = savedLevel > 1
+
+    // ── Continue (only if the player has started at least level 2) ───────────
+    if (hasProgress) {
+      new UIButton({
+        scene: this,
+        x: CX,
+        y: CY - 5,
+        width: 240,
+        height: 64,
+        label: `CONTINUE  Lv${savedLevel}`,
+        fontSize: 22,
+        color: 0x27ae60,
+        hoverColor: 0x2ecc71,
+        pressColor: 0x1e8449,
+        onClick: () => this.startGame(savedLevel)
+      })
+
+      new UIButton({
+        scene: this,
+        x: CX,
+        y: CY + 75,
+        width: 200,
+        height: 52,
+        label: 'NEW GAME',
+        fontSize: 20,
+        color: 0x4a90d9,
+        hoverColor: 0x5ba3f5,
+        pressColor: 0x357abd,
+        onClick: () => this.startGame(1)
+      })
+    } else {
+      // ── Play Button (fresh start) ─────────────────────────────────────────
+      new UIButton({
+        scene: this,
+        x: CX,
+        y: CY + 10,
+        width: 240,
+        height: 64,
+        label: 'PLAY',
+        fontSize: 26,
+        color: 0x4a90d9,
+        hoverColor: 0x5ba3f5,
+        pressColor: 0x357abd,
+        onClick: () => this.startGame(1)
+      })
+    }
 
     // ── Mute Toggle ──────────────────────────────────────────────────────────
+    const muteY = hasProgress ? CY + 155 : CY + 90
     const muteLabel = AudioManager.muted ? '🔇 Muted' : '🔊 Sound On'
     this.muteButton = new UIButton({
       scene: this,
       x: CX,
-      y: CY + 90,
+      y: muteY,
       width: 180,
       height: 48,
       label: muteLabel,
@@ -113,6 +149,17 @@ export class MenuScene extends Phaser.Scene {
       pressColor: 0x1a252f,
       onClick: () => this.toggleMute()
     })
+
+    // ── Progress indicator ────────────────────────────────────────────────────
+    if (hasProgress) {
+      const progressY = muteY + 60
+      this.add.text(CX, progressY, `Progress: ${savedLevel - 1} / ${TOTAL_LEVELS} levels`, {
+        fontSize: '14px',
+        fontFamily: 'Arial, sans-serif',
+        color: '#666688',
+        resolution: 2
+      }).setOrigin(0.5)
+    }
   }
 
   private createFooter(): void {
@@ -147,19 +194,20 @@ export class MenuScene extends Phaser.Scene {
     this.spaceKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE)
     this.escapeKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.ESC)
 
-    this.enterKey.on('down', this.startGame, this)
-    this.spaceKey.on('down', this.startGame, this)
+    const savedLevel = SaveManager.load<number>(SAVE_KEYS.currentLevel, 1)
+    this.enterKey.on('down', () => this.startGame(savedLevel), this)
+    this.spaceKey.on('down', () => this.startGame(savedLevel), this)
     this.escapeKey.on('down', this.toggleMute, this)
   }
 
   // ─── Actions ──────────────────────────────────────────────────────────────
 
-  private startGame(): void {
+  private startGame(levelId: number = 1): void {
     // TODO: analytics hook — game_started
     this.cameras.main.fadeOut(BALANCING.sceneFadeDuration, 0, 0, 0)
     this.cameras.main.once(
       Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE,
-      () => this.scene.start('GameScene')
+      () => this.scene.start('GameScene', { levelId })
     )
   }
 
