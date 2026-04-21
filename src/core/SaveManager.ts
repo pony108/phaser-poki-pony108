@@ -87,5 +87,9 @@ export const SAVE_KEYS = {
   muted: 'muted',
   sfxVolume: 'sfx_volume',
   musicVolume: 'music_volume',
-  completedCleans: 'completed_cleans'
+  completedCleans: 'completed_cleans',
+  /** 1-based id of the next unplayed level (starts at 1) */
+  currentLevel: 'current_level',
+  /** Record<levelId, stars> — best star count per level */
+  levelStars: 'level_stars'
 } as const
