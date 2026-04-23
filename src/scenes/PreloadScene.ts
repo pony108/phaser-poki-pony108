@@ -175,29 +175,111 @@ export class PreloadScene extends Phaser.Scene {
     v4.generateTexture('vehicle_4', w, h)
     v4.destroy()
 
-    // Dirt Textures (Generated procedurally in GameScene on the render texture, 
-    // but we can make a basic dirt blob here if needed. We'll use graphics primitives for dirt).
+    // ── Tool icons — each nozzle has a distinct silhouette ───────────────────
 
-    // Tools
-    const makeTool = (key: string, color: number) => {
-      const tg = this.make.graphics({ x: 0, y: 0 }, false)
-      tg.fillStyle(color)
-      tg.fillCircle(24, 24, 24)
-      tg.generateTexture(key, 48, 48)
-      tg.destroy()
+    // FAN — wide blue arc (wide sponge / fan spray)
+    const fanGfx = this.make.graphics({ x: 0, y: 0 }, false)
+    fanGfx.fillStyle(0x3498db)
+    fanGfx.fillTriangle(24, 4, 4, 44, 44, 44)    // wide triangle = fan shape
+    fanGfx.fillStyle(0x5dade2, 0.7)
+    fanGfx.fillRect(20, 40, 8, 8)                 // handle stub
+    fanGfx.generateTexture('tool_fan', 48, 48)
+    fanGfx.destroy()
+
+    // JET — narrow teal cone (high-pressure jet)
+    const jetGfx = this.make.graphics({ x: 0, y: 0 }, false)
+    jetGfx.fillStyle(0x1abc9c)
+    jetGfx.fillTriangle(24, 4, 20, 44, 28, 44)   // narrow triangle = jet
+    jetGfx.fillStyle(0x16a085)
+    jetGfx.fillRect(22, 38, 4, 10)               // nozzle body
+    jetGfx.generateTexture('tool_jet', 48, 48)
+    jetGfx.destroy()
+
+    // HOT — orange circle with steam dots (hot steam nozzle)
+    const hotGfx = this.make.graphics({ x: 0, y: 0 }, false)
+    hotGfx.fillStyle(0xe67e22)
+    hotGfx.fillCircle(24, 32, 16)                // main body
+    hotGfx.fillStyle(0xffffff, 0.8)
+    hotGfx.fillCircle(18, 14, 4)                 // steam dot
+    hotGfx.fillCircle(24, 9, 3)                  // steam dot
+    hotGfx.fillCircle(30, 14, 4)                 // steam dot
+    hotGfx.generateTexture('tool_hot', 48, 48)
+    hotGfx.destroy()
+
+    // ── Vehicle 5 — Van (grey, boxy) ─────────────────────────────────────────
+    const v5 = this.make.graphics({ x: 0, y: 0 }, false)
+    v5.fillStyle(0x7f8c8d)
+    v5.fillRoundedRect(0, 0, 180, 380, 10)
+    v5.fillStyle(0x222222)
+    v5.fillRoundedRect(15, 30, 150, 50, 8)       // front window
+    v5.fillRoundedRect(15, 160, 150, 30, 5)      // side window strip
+    v5.fillStyle(0x555555)
+    v5.fillRect(10, 340, 70, 40)                 // rear door left
+    v5.fillRect(100, 340, 70, 40)                // rear door right
+    v5.generateTexture('vehicle_5', 180, 380)
+    v5.destroy()
+
+    // ── Vehicle 6 — Bus (green, wide) ─────────────────────────────────────────
+    const v6 = this.make.graphics({ x: 0, y: 0 }, false)
+    v6.fillStyle(0x27ae60)
+    v6.fillRoundedRect(0, 0, 210, 400, 8)
+    v6.fillStyle(0x222222)
+    for (let i = 0; i < 4; i++) {               // row of bus windows
+      v6.fillRoundedRect(10, 30 + i * 80, 190, 50, 6)
     }
-    makeTool('tool_widesponge', 0x3498db) // Blueish
-    makeTool('tool_foambrush', 0xffffff) // White
-    makeTool('tool_focusspray', 0x1abc9c) // Cyan/Aquamarine
+    v6.generateTexture('vehicle_6', 210, 400)
+    v6.destroy()
 
-    // Particle — small white dot
+    // ── Vehicle 7 — ATV (brown, chunky, no roof) ──────────────────────────────
+    const v7 = this.make.graphics({ x: 0, y: 0 }, false)
+    v7.fillStyle(0xa04000)
+    v7.fillRoundedRect(20, 60, 160, 200, 12)    // body
+    v7.fillStyle(0x222222)
+    v7.fillCircle(40, 280, 35)                  // rear wheel
+    v7.fillCircle(160, 280, 35)                 // front wheel
+    v7.fillCircle(40, 60, 25)                   // rear top wheel arch
+    v7.fillCircle(160, 60, 25)                  // front top wheel arch
+    v7.fillStyle(0xa04000)
+    v7.fillCircle(40, 60, 18)
+    v7.fillCircle(160, 60, 18)
+    v7.generateTexture('vehicle_7', 200, 320)
+    v7.destroy()
+
+    // ── Vehicle 8 — Buggy (yellow, open frame) ────────────────────────────────
+    const v8 = this.make.graphics({ x: 0, y: 0 }, false)
+    v8.fillStyle(0xf39c12)
+    v8.fillRoundedRect(40, 80, 120, 160, 8)     // seat/frame centre
+    v8.lineStyle(6, 0xd68910)
+    v8.strokeRect(20, 40, 160, 240)             // roll cage outline
+    v8.fillStyle(0x222222)
+    v8.fillCircle(35, 290, 30)                  // wheel
+    v8.fillCircle(165, 290, 30)                 // wheel
+    v8.generateTexture('vehicle_8', 200, 340)
+    v8.destroy()
+
+    // ── Vehicle 9 — Engine Block (dark metal, novelty object) ─────────────────
+    const v9 = this.make.graphics({ x: 0, y: 0 }, false)
+    v9.fillStyle(0x424242)
+    v9.fillRect(10, 10, 160, 280)               // block body
+    v9.fillStyle(0x616161)
+    for (let i = 0; i < 3; i++) {              // cylinder tops
+      v9.fillCircle(40 + i * 40, 40, 18)
+    }
+    v9.fillStyle(0x333333)
+    v9.fillRoundedRect(15, 90, 150, 60, 5)     // oil pan
+    v9.fillStyle(0x888888)
+    v9.fillRect(60, 200, 60, 80)               // exhaust block
+    v9.generateTexture('vehicle_9', 180, 300)
+    v9.destroy()
+
+    // ── Particle — small white dot ─────────────────────────────────────────────
     const particleGfx = this.make.graphics({ x: 0, y: 0 }, false)
     particleGfx.fillStyle(0xffffff, 0.8)
     particleGfx.fillCircle(4, 4, 4)
     particleGfx.generateTexture('particle', 8, 8)
     particleGfx.destroy()
-    
-    // Sparkle
+
+    // ── Sparkle ────────────────────────────────────────────────────────────────
     const sp = this.make.graphics({ x: 0, y: 0 }, false)
     sp.fillStyle(0xffffff, 1)
     sp.beginPath()
@@ -212,8 +294,8 @@ export class PreloadScene extends Phaser.Scene {
     sp.fillPath()
     sp.generateTexture('sparkle', 16, 16)
     sp.destroy()
-    
-    // Bubble
+
+    // ── Bubble ─────────────────────────────────────────────────────────────────
     const bb = this.make.graphics({ x: 0, y: 0 }, false)
     bb.lineStyle(2, 0xffffff, 0.8)
     bb.strokeCircle(8, 8, 6)
@@ -223,3 +305,4 @@ export class PreloadScene extends Phaser.Scene {
     // We don't have real audio assets so we omit them to prevent loading errors.
   }
 }
+

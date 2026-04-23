@@ -3,15 +3,20 @@
  * World and level definitions for Sparkle Wash.
  *
  * GDD worlds:
- *   World 1 (Farm)    – Dust, levels 1–5
- *   World 2 (Ranch)   – Mud,  levels 6–10  (M4)
- *   World 3 (Garage)  – Oil,  levels 11–15 (M4)
- *   World 4 (Junkyard)– Rust, levels 16–20 (M4)
+ *   World 1 (Farm)     – Dust,  levels  1–5   – Fan nozzle
+ *   World 2 (Ranch)    – Mud,   levels  6–10  – Jet unlocks at level 7
+ *   World 3 (Garage)   – Oil,   levels 11–15  – Hot unlocks at level 12
+ *   World 4 (Junkyard) – Rust,  levels 16–20  – All nozzles, bonus zones
  *
  * Star thresholds (advisory timer, no fail):
- *   3 stars: ≤ parTimeSeconds
- *   2 stars: ≤ parTimeSeconds × 1.6
+ *   3 stars: elapsed ≤ parTimeSeconds
+ *   2 stars: elapsed ≤ parTimeSeconds × 1.6
  *   1 star : anything else
+ *
+ * Vehicle types:
+ *   0 = sedan     1 = sports car  2 = pickup truck
+ *   3 = big truck  4 = vintage     5 = van
+ *   6 = bus        7 = ATV         8 = buggy       9 = engine block
  */
 
 export type DirtType = 'dust' | 'mud' | 'oil' | 'rust'
@@ -21,73 +26,87 @@ export interface LevelConfig {
   id: number
   /** World number (1-4) */
   world: number
-  /** Human-readable name shown in HUD / ResultScene */
+  /** Theme label shown in HUD and ResultScene */
   name: string
-  /** Which placeholder vehicle sprite to use (0–4) */
+  /** Vehicle texture index (0–9) */
   vehicleType: number
-  /** Type of dirt — determines colour and layer count */
+  /** Type of dirt — determines colour and cleaning mechanic */
   dirtType: DirtType
-  /** Number of dirt layers (1 = dust, 4 = rust) */
+  /** Number of passes required to fully clean a cell (1=dust, 2=mud, 3=oil, 4=rust) */
   dirtLayers: number
-  /** Time in seconds for a 3-star clean */
+  /** Seconds for a 3-star clean */
   parTimeSeconds: number
+  /** Optional gold bonus zones [localX, localY, w, h] relative to vehicle top-left */
+  bonusZones?: [number, number, number, number][]
 }
 
-// ─── World 1 — Farm (dust, 1 layer) ──────────────────────────────────────────
+// ─── World 1 — Farm (Dust, Fan nozzle) ────────────────────────────────────────
 
 const WORLD_1: LevelConfig[] = [
+  { id: 1,  world: 1, name: 'Dusty Sedan',        vehicleType: 0, dirtType: 'dust', dirtLayers: 1, parTimeSeconds: 40 },
+  { id: 2,  world: 1, name: 'Grimy Hatchback',    vehicleType: 1, dirtType: 'dust', dirtLayers: 1, parTimeSeconds: 45 },
+  { id: 3,  world: 1, name: 'Farm Pickup',         vehicleType: 2, dirtType: 'dust', dirtLayers: 1, parTimeSeconds: 50 },
+  { id: 4,  world: 1, name: 'Old Tractor',         vehicleType: 3, dirtType: 'dust', dirtLayers: 1, parTimeSeconds: 60 },
+  { id: 5,  world: 1, name: 'Vintage Banger',      vehicleType: 4, dirtType: 'dust', dirtLayers: 1, parTimeSeconds: 55 }
+]
+
+// ─── World 2 — Ranch (Mud, Jet nozzle unlocks at level 7) ─────────────────────
+
+const WORLD_2: LevelConfig[] = [
+  { id: 6,  world: 2, name: 'Muddy ATV',           vehicleType: 7, dirtType: 'mud', dirtLayers: 2, parTimeSeconds: 55 },
+  { id: 7,  world: 2, name: 'Ranch Pickup',         vehicleType: 2, dirtType: 'mud', dirtLayers: 2, parTimeSeconds: 60 },
+  { id: 8,  world: 2, name: 'Caked SUV',            vehicleType: 1, dirtType: 'mud', dirtLayers: 2, parTimeSeconds: 65 },
+  { id: 9,  world: 2, name: 'Boot Hill Bus',        vehicleType: 6, dirtType: 'mud', dirtLayers: 3, parTimeSeconds: 80 },
+  { id: 10, world: 2, name: 'Swamp Buggy',          vehicleType: 8, dirtType: 'mud', dirtLayers: 3, parTimeSeconds: 75 }
+]
+
+// ─── World 3 — Garage (Oil, Hot nozzle unlocks at level 12) ───────────────────
+
+const WORLD_3: LevelConfig[] = [
+  { id: 11, world: 3, name: 'Greasy Coupe',         vehicleType: 0, dirtType: 'oil', dirtLayers: 2, parTimeSeconds: 60 },
+  { id: 12, world: 3, name: 'Engine Block',         vehicleType: 9, dirtType: 'oil', dirtLayers: 3, parTimeSeconds: 70 },
+  { id: 13, world: 3, name: 'Sump Truck',           vehicleType: 2, dirtType: 'oil', dirtLayers: 3, parTimeSeconds: 75 },
+  { id: 14, world: 3, name: 'Oily Vintage',         vehicleType: 4, dirtType: 'oil', dirtLayers: 3, parTimeSeconds: 70 },
+  { id: 15, world: 3, name: 'Slick Racer',          vehicleType: 1, dirtType: 'oil', dirtLayers: 4, parTimeSeconds: 85 }
+]
+
+// ─── World 4 — Junkyard (Rust, all nozzles, bonus zones) ──────────────────────
+
+const WORLD_4: LevelConfig[] = [
   {
-    id: 1,
-    world: 1,
-    name: 'Dusty Sedan',
-    vehicleType: 0,
-    dirtType: 'dust',
-    dirtLayers: 1,
-    parTimeSeconds: 40
+    id: 16, world: 4, name: 'Rusty Wreck',
+    vehicleType: 0, dirtType: 'rust', dirtLayers: 3, parTimeSeconds: 75,
+    bonusZones: [[20, 60, 80, 40]]
   },
   {
-    id: 2,
-    world: 1,
-    name: 'Muddy SUV',
-    vehicleType: 1,
-    dirtType: 'dust',
-    dirtLayers: 1,
-    parTimeSeconds: 50
+    id: 17, world: 4, name: 'Iron Giant',
+    vehicleType: 6, dirtType: 'rust', dirtLayers: 4, parTimeSeconds: 95,
+    bonusZones: [[10, 20, 100, 30]]
   },
   {
-    id: 3,
-    world: 1,
-    name: 'Grimy Sports',
-    vehicleType: 2,
-    dirtType: 'dust',
-    dirtLayers: 1,
-    parTimeSeconds: 45
+    id: 18, world: 4, name: 'Scrap Heap',
+    vehicleType: 2, dirtType: 'rust', dirtLayers: 4, parTimeSeconds: 90,
+    bonusZones: [[30, 80, 60, 40]]
   },
   {
-    id: 4,
-    world: 1,
-    name: 'Filthy Truck',
-    vehicleType: 3,
-    dirtType: 'dust',
-    dirtLayers: 1,
-    parTimeSeconds: 60
+    id: 19, world: 4, name: 'Abandoned Van',
+    vehicleType: 5, dirtType: 'rust', dirtLayers: 4, parTimeSeconds: 85,
+    bonusZones: [[15, 40, 70, 50]]
   },
   {
-    id: 5,
-    world: 1,
-    name: 'Vintage Grime',
-    vehicleType: 4,
-    dirtType: 'dust',
-    dirtLayers: 1,
-    parTimeSeconds: 55
+    id: 20, world: 4, name: 'The Final Rust',
+    vehicleType: 4, dirtType: 'rust', dirtLayers: 4, parTimeSeconds: 105,
+    bonusZones: [[10, 30, 60, 30], [80, 80, 50, 40]]
   }
 ]
 
-// ─── All Levels ───────────────────────────────────────────────────────────────
+// ─── All Levels ────────────────────────────────────────────────────────────────
 
 export const ALL_LEVELS: LevelConfig[] = [
-  ...WORLD_1
-  // World 2–4 will be added in M4
+  ...WORLD_1,
+  ...WORLD_2,
+  ...WORLD_3,
+  ...WORLD_4
 ]
 
 export const TOTAL_LEVELS = ALL_LEVELS.length
@@ -101,6 +120,20 @@ export function getLevel(levelId: number): LevelConfig {
 /** Returns true if levelId is the final level. */
 export function isLastLevel(levelId: number): boolean {
   return levelId >= TOTAL_LEVELS
+}
+
+/**
+ * Returns the world number (1–4) for a given 1-based level id.
+ */
+export function worldForLevel(levelId: number): number {
+  return getLevel(levelId).world
+}
+
+/**
+ * Returns all level ids belonging to a world (1-based world number).
+ */
+export function levelsInWorld(world: number): number[] {
+  return ALL_LEVELS.filter(l => l.world === world).map(l => l.id)
 }
 
 /**

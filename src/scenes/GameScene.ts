@@ -32,7 +32,7 @@ export class GameScene extends Phaser.Scene {
   private sparkleEmitter!: Phaser.GameObjects.Particles.ParticleEmitter
 
   // Game State
-  private activeTool: keyof typeof BALANCING.tools = 'widesponge'
+  private activeTool = 'fan'
   private grid: boolean[][] = []
   private readonly CELL_SIZE = 10
   private totalCells = 0
@@ -47,6 +47,14 @@ export class GameScene extends Phaser.Scene {
   private maskHeight = 0
   private prevPointerX = 0
   private prevPointerY = 0
+
+  // Multi-layer dirt tracking
+  private layerGrid: number[][] = []
+
+  // Wrong-tool feedback
+  private weakBrush!: Phaser.GameObjects.Graphics
+  private wrongToolWarningText!: Phaser.GameObjects.Text
+  private wrongToolWarningTimer = 0
 
   // Tutorial
   private tutorialContainer!: Phaser.GameObjects.Container
@@ -74,7 +82,8 @@ export class GameScene extends Phaser.Scene {
     this.timeElapsedMs = 0
     this.totalWipeCalls = 0
     this.wasteWipeCalls = 0
-    this.activeTool = 'widesponge'
+    this.wrongToolWarningTimer = 0
+    this.activeTool = 'fan'
     this.toolIcons = {}
 
     this.hasPlayerStarted = false
@@ -87,7 +96,21 @@ export class GameScene extends Phaser.Scene {
     this.setupInput()
 
     this.brush = this.make.graphics()
+    this.weakBrush = this.make.graphics()
     this.updateBrush()
+
+    // Unlock any tools the player has earned by reaching this level
+    this.checkAndUnlockTools()
+
+    // Wrong-tool flash text (hidden until needed)
+    this.wrongToolWarningText = this.add.text(CX, CY + 30, '', {
+      fontFamily: 'Arial Black, Arial, sans-serif',
+      fontSize: '20px',
+      color: '#ffdd57',
+      stroke: '#222222',
+      strokeThickness: 5,
+      resolution: 2
+    }).setOrigin(0.5).setDepth(200).setAlpha(0)
 
     // Show tutorial shortly after gameplay is visible
     this.time.delayedCall(600, () => this.createTutorial())
@@ -97,6 +120,7 @@ export class GameScene extends Phaser.Scene {
     if (this.isFinished) return
     this.timeElapsedMs += delta
     this.timerText.setText(`${Math.floor(this.timeElapsedMs / 1000)}s`)
+    if (this.wrongToolWarningTimer > 0) this.wrongToolWarningTimer -= delta
   }
 
   shutdown(): void {
@@ -110,83 +134,110 @@ export class GameScene extends Phaser.Scene {
   private createTutorial(): void {
     if (this.hasPlayerStarted || this.isFinished) return
 
-    // Anchor the tutorial over the centre of the vehicle
     const handX = CX
-    const handY = this.maskTop + this.maskHeight * 0.35
-    const dragDist = 60 // px the hand will scrub left→right
+    const handY = this.maskTop + this.maskHeight * 0.38
+    const dragDist = 72 // px the hand scrubs left→right
 
-    // ── Hand graphic (finger pointing down) ──────────────────────────────────
-    const handGfx = this.make.graphics({ x: 0, y: 0 }, false)
-    // Finger body
-    handGfx.fillStyle(0xffe0c8, 1)
-    handGfx.fillRoundedRect(-10, -30, 20, 40, 8)
-    // Fingernail
-    handGfx.fillStyle(0xffb8a0, 1)
-    handGfx.fillRoundedRect(-8, -30, 16, 12, 5)
-    // Knuckle bump
-    handGfx.fillStyle(0xffd0b0, 1)
-    handGfx.fillCircle(0, 12, 14)
-    handGfx.fillStyle(0xffe0c8, 1)
-    handGfx.fillCircle(0, 12, 10)
-    // Tip dot
-    handGfx.fillStyle(0xffc8a0, 1)
-    handGfx.fillCircle(0, -30, 8)
+    // ── Glow circle beneath the finger ───────────────────────────────────────
+    const glow = this.add.graphics()
+    glow.fillStyle(0xffffff, 0.18)
+    glow.fillCircle(0, 8, 36)
 
-    const handTex = handGfx.generateTexture('__tutorial_hand__', 48, 64)
-    handGfx.destroy()
-    void handTex  // suppress unused warning
+    // ── Three motion-trail dots (left of hand, fading) ────────────────────────
+    const trailDots = this.add.graphics()
+    trailDots.fillStyle(0xffffff, 0.55)
+    trailDots.fillCircle(-30, 8, 5)
+    trailDots.fillStyle(0xffffff, 0.30)
+    trailDots.fillCircle(-48, 8, 3.5)
+    trailDots.fillStyle(0xffffff, 0.12)
+    trailDots.fillCircle(-62, 8, 2)
 
-    const hand = this.add.image(0, 0, '__tutorial_hand__').setOrigin(0.5, 0)
-
-    // ── Ripple circle under the finger tip ───────────────────────────────────
-    const ripple = this.add.graphics()
-    ripple.lineStyle(2, 0xffffff, 0.6)
-    ripple.strokeCircle(0, -30, 14)
+    // ── Emoji hand — 👆 rotated 90° points right (scrub direction) ───────────
+    const hand = this.add.text(0, 0, '👆', {
+      fontSize: '52px',
+      resolution: 2
+    }).setOrigin(0.5, 0.5).setAngle(90)
 
     // ── "Drag to wash" label ──────────────────────────────────────────────────
-    const label = this.add.text(0, 52, 'Drag to wash', {
-      fontFamily: 'Arial, sans-serif',
-      fontSize: '18px',
+    const label = this.add.text(0, 46, 'Drag to wash ✨', {
+      fontFamily: 'Arial Black, Arial, sans-serif',
+      fontSize: '19px',
       color: '#ffffff',
       fontStyle: 'bold',
-      stroke: '#000000',
-      strokeThickness: 4,
+      stroke: '#1a1a2e',
+      strokeThickness: 5,
       resolution: 2
     }).setOrigin(0.5, 0)
 
-    // Container at start of scrub range
-    this.tutorialContainer = this.add.container(handX - dragDist / 2, handY, [ripple, hand, label])
-    this.tutorialContainer.setDepth(100)
+    // Container starts at left of scrub range, hidden (scale 0)
+    this.tutorialContainer = this.add.container(
+      handX - dragDist / 2, handY,
+      [glow, trailDots, hand, label]
+    )
+    this.tutorialContainer.setDepth(100).setScale(0)
 
-    // ── Looping scrub tween ───────────────────────────────────────────────────
+    // ── Spring pop-in ─────────────────────────────────────────────────────────
+    this.tweens.add({
+      targets: this.tutorialContainer,
+      scaleX: 1,
+      scaleY: 1,
+      duration: 320,
+      ease: 'Back.Out'
+    })
+
+    // ── Looping scrub tween (starts after pop-in) ─────────────────────────────
     this.tutorialTween = this.tweens.add({
       targets: this.tutorialContainer,
       x: handX + dragDist / 2,
-      duration: 800,
+      duration: 700,
       ease: 'Sine.InOut',
       yoyo: true,
       repeat: -1,
-      onStart: () => {
-        // Pulse in
-        this.tweens.add({
-          targets: this.tutorialContainer,
-          scaleX: { from: 0, to: 1 },
-          scaleY: { from: 0, to: 1 },
-          duration: 250,
-          ease: 'Back.Out'
-        })
-      }
+      delay: 350
     })
 
-    // Pulse the ripple alpha
+    // ── Tilt the hand during scrub (±12°) ────────────────────────────────────
     this.tweens.add({
-      targets: ripple,
-      alpha: { from: 0.8, to: 0 },
-      scaleX: { from: 1, to: 2 },
-      scaleY: { from: 1, to: 2 },
+      targets: hand,
+      angle: 78,           // 90° - 12° on left swing
       duration: 700,
+      ease: 'Sine.InOut',
+      yoyo: true,
       repeat: -1,
-      ease: 'Quad.Out'
+      delay: 350
+    })
+
+    // ── Trail dots flip direction on yoyo (mirror on right swing) ────────────
+    this.tweens.add({
+      targets: trailDots,
+      scaleX: -1,          // mirror so dots trail behind on both directions
+      duration: 700,
+      ease: 'Sine.InOut',
+      yoyo: true,
+      repeat: -1,
+      delay: 350
+    })
+
+    // ── Glow breathe ─────────────────────────────────────────────────────────
+    this.tweens.add({
+      targets: glow,
+      alpha: { from: 1, to: 0.4 },
+      scaleX: { from: 1, to: 1.5 },
+      scaleY: { from: 1, to: 1.5 },
+      duration: 600,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.InOut'
+    })
+
+    // ── Label gentle bob ─────────────────────────────────────────────────────
+    this.tweens.add({
+      targets: label,
+      y: { from: 46, to: 52 },
+      duration: 900,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.InOut'
     })
   }
 
@@ -229,11 +280,20 @@ export class GameScene extends Phaser.Scene {
     const vt = this.level.vehicleType
     const vKey = `vehicle_${vt}`
 
-    // Size matches generated textures in PreloadScene
-    let vw = 180
-    let vh = 340
-    if (vt === 1) { vw += 20; vh += 40 }  // SUV
-    if (vt === 3) { vw += 30; vh += 60 }  // Truck
+    // Dimensions must match textures generated in PreloadScene.loadAssets()
+    const sizes: Record<number, [number, number]> = {
+      0: [180, 340], // sedan
+      1: [200, 380], // sports (was SUV +20/+40)
+      2: [180, 340], // pickup
+      3: [210, 400], // big truck (+30/+60)
+      4: [180, 340], // vintage
+      5: [180, 380], // van
+      6: [210, 400], // bus
+      7: [200, 320], // ATV
+      8: [200, 340], // buggy
+      9: [180, 300]  // engine block
+    }
+    const [vw, vh] = sizes[vt] ?? [180, 340]
 
     this.maskLeft = CX - vw / 2
     this.maskTop = CY - 80 - vh / 2
@@ -245,7 +305,7 @@ export class GameScene extends Phaser.Scene {
     shadow.fillStyle(0x000000, 0.4)
     shadow.fillRoundedRect(this.maskLeft + 10, this.maskTop + 10, vw, vh, 20)
 
-    // Vehicle sprite (centered on CX, CY-80)
+    // Vehicle sprite
     this.add.sprite(CX, CY - 80, vKey)
 
     // Dirt RenderTexture exactly overlays the vehicle
@@ -253,16 +313,19 @@ export class GameScene extends Phaser.Scene {
     this.dirtRT.setOrigin(0, 0)
     this.drawDirt(vw, vh)
 
-    // Logical grid for % tracking
+    // Logical grids for % tracking
     this.grid = []
+    this.layerGrid = []
     this.totalCells = 0
     this.cleanCells = 0
     const cols = Math.ceil(vw / this.CELL_SIZE)
     const rows = Math.ceil(vh / this.CELL_SIZE)
     for (let r = 0; r < rows; r++) {
       this.grid[r] = []
+      this.layerGrid[r] = []
       for (let c = 0; c < cols; c++) {
         this.grid[r][c] = false
+        this.layerGrid[r][c] = this.level.dirtLayers
         this.totalCells++
       }
     }
@@ -350,12 +413,23 @@ export class GameScene extends Phaser.Scene {
       fontStyle: 'bold'
     }).setOrigin(0.5)
 
-    // Level name (top-left below bar)
+    // Level name + dirt type badge (top-left below bar)
+    const dirtLabels: Record<string, string> = {
+      dust: '💨 DUST', mud: '🟫 MUD', oil: '🖤 OIL', rust: '🔶 RUST'
+    }
+    const layerDots = '●'.repeat(this.level.dirtLayers)
     this.add.text(20, 46, `Lvl ${this.level.id}  ${this.level.name}`, {
       fontFamily: 'Arial, sans-serif',
       fontSize: '14px',
       color: '#aaaacc'
     }).setOrigin(0, 0)
+
+    this.add.text(GAME_CONFIG.width / 2, 46,
+      `${dirtLabels[this.level.dirtType] ?? this.level.dirtType}  ${layerDots}`, {
+      fontFamily: 'Arial, sans-serif',
+      fontSize: '11px',
+      color: '#ffcc88'
+    }).setOrigin(0.5, 0)
 
     // Timer (top-right)
     this.timerText = this.add.text(GAME_CONFIG.width - 20, 46, '0s', {
@@ -369,7 +443,10 @@ export class GameScene extends Phaser.Scene {
   // ─── Tools UI ─────────────────────────────────────────────────────────────
 
   private createToolsUI(): void {
-    const toolKeys = Object.keys(BALANCING.tools) as Array<keyof typeof BALANCING.tools>
+    // Only show tools the player has unlocked
+    const unlockedTools = SaveManager.load<string[]>(SAVE_KEYS.unlockedTools, ['fan'])
+    const allKeys = Object.keys(BALANCING.tools)
+    const toolKeys = allKeys.filter(k => unlockedTools.includes(k))
     const spacing = 100
     const startX = CX - ((toolKeys.length - 1) * spacing) / 2
 
@@ -406,12 +483,17 @@ export class GameScene extends Phaser.Scene {
   }
 
   private updateBrush(): void {
+    const tool = BALANCING.tools[this.activeTool]
+    const { radius, strength } = tool
+
     this.brush.clear()
-    const { radius, strength } = BALANCING.tools[this.activeTool]
-    // Strength doubles as alpha; RT.erase is effectively binary but we keep it
-    // for when the real brush shaders are added in M5.
     this.brush.fillStyle(0xffffff, strength)
     this.brush.fillCircle(radius, radius, radius)
+
+    // Weak brush for wrong-tool passes: same radius, 20% alpha
+    this.weakBrush.clear()
+    this.weakBrush.fillStyle(0xffffff, strength * BALANCING.wrongToolStrengthFactor)
+    this.weakBrush.fillCircle(radius, radius, radius)
   }
 
   // ─── Input ────────────────────────────────────────────────────────────────
@@ -486,7 +568,8 @@ export class GameScene extends Phaser.Scene {
   // ─── Wipe Logic ───────────────────────────────────────────────────────────
 
   private handleWipe(localX: number, localY: number): void {
-    const radius = BALANCING.tools[this.activeTool].radius
+    const tool = BALANCING.tools[this.activeTool]
+    const radius = tool.radius
 
     if (
       localX < -radius ||
@@ -497,10 +580,18 @@ export class GameScene extends Phaser.Scene {
       return
     }
 
-    // Visual erase
-    this.dirtRT.erase(this.brush, localX - radius, localY - radius)
+    // Check tool effectiveness against current dirt type
+    const isEffective = tool.primaryDirt.includes(this.level.dirtType)
+    const layerReduction = isEffective ? 1.0 : BALANCING.wrongToolStrengthFactor
 
-    // Logical grid update
+    if (isEffective) {
+      this.dirtRT.erase(this.brush, localX - radius, localY - radius)
+    } else {
+      this.dirtRT.erase(this.weakBrush, localX - radius, localY - radius)
+      this.showWrongToolWarning()
+    }
+
+    // Logical grid update (layerGrid drives cell completion)
     let cellsCleanedNow = 0
     const startCol = Math.max(0, Math.floor((localX - radius) / this.CELL_SIZE))
     const gridCols = this.grid[0] ? this.grid[0].length - 1 : 0
@@ -514,9 +605,12 @@ export class GameScene extends Phaser.Scene {
           const cx = c * this.CELL_SIZE + this.CELL_SIZE / 2
           const cy = r * this.CELL_SIZE + this.CELL_SIZE / 2
           if (Phaser.Math.Distance.Between(cx, cy, localX, localY) <= radius) {
-            this.grid[r][c] = true
-            cellsCleanedNow++
-            this.cleanCells++
+            this.layerGrid[r][c] = Math.max(0, this.layerGrid[r][c] - layerReduction)
+            if (this.layerGrid[r][c] <= 0) {
+              this.grid[r][c] = true
+              cellsCleanedNow++
+              this.cleanCells++
+            }
           }
         }
       }
@@ -576,6 +670,11 @@ export class GameScene extends Phaser.Scene {
       allStars[this.level.id] = stars
       SaveManager.save(SAVE_KEYS.levelStars, allStars)
     }
+
+    // Mark level as completed (for world-unlock threshold)
+    const completed = SaveManager.load<Record<number, boolean>>(SAVE_KEYS.levelCompleted, {})
+    completed[this.level.id] = true
+    SaveManager.save(SAVE_KEYS.levelCompleted, completed)
 
     // Advance current level pointer (only if beating a new level)
     const savedCurrent = SaveManager.load<number>(SAVE_KEYS.currentLevel, 1)

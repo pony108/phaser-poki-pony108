@@ -91,5 +91,15 @@ export const SAVE_KEYS = {
   /** 1-based id of the next unplayed level (starts at 1) */
   currentLevel: 'current_level',
   /** Record<levelId, stars> — best star count per level */
-  levelStars: 'level_stars'
+  levelStars: 'level_stars',
+  /**
+   * Array of tool keys the player has unlocked, e.g. ['fan', 'jet'].
+   * Starts as ['fan']. New tools added when the unlock level is reached.
+   */
+  unlockedTools: 'unlocked_tools',
+  /**
+   * Record<levelId, true> — which levels have been completed at least once.
+   * Used to determine world-unlock threshold (3 of 5 per world).
+   */
+  levelCompleted: 'level_completed'
 } as const
