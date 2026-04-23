@@ -119,20 +119,11 @@ export class PreloadScene extends Phaser.Scene {
   //   this.load.audio('bgm', 'assets/bgm.mp3')
 
   private loadAssets(): void {
+    this.load.image('vehicle_0', 'assets/vehicles/vehicle_0.png')
     // ── Placeholder textures (generated at runtime — no files needed) ────────
 
     const w = 180
     const h = 340 // Base vehicle size
-
-    // Vehicle 0: Sedan (Blue)
-    const v0 = this.make.graphics({ x: 0, y: 0 }, false)
-    v0.fillStyle(0x4a90d9) // Blue body
-    v0.fillRoundedRect(0, 0, w, h, 20)
-    v0.fillStyle(0x222222) // Windshield
-    v0.fillRoundedRect(20, h * 0.2, w - 40, 50, 10)
-    v0.fillRoundedRect(20, h * 0.7, w - 40, 40, 10)
-    v0.generateTexture('vehicle_0', w, h)
-    v0.destroy()
 
     // Vehicle 1: SUV (Red)
     const v1 = this.make.graphics({ x: 0, y: 0 }, false)

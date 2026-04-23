@@ -28,3 +28,11 @@ Original prompt: Build and iterate a playable web game in this workspace, valida
   - Level 16 bonus-complete screenshot showed `BONUS 1/1 +250` and the zone outline flipped to green after cleanup.
   - Level 16 result screenshot and debug state showed `bonusZonesCompleted = 1`, `bonusScore = 250`, and the visible result-card summary.
 - Validation finding: the first result-card layout version hid the bonus summary behind the action buttons; fixed by pushing the buttons lower when bonus summary is present.
+- Added a real sedan PNG at `public/assets/vehicles/vehicle_0.png`.
+- Switched `PreloadScene` so only `vehicle_0` loads from the new PNG file; the rest of the vehicle keys still use generated placeholder textures.
+- Validation: `npm run typecheck` passed after the sedan asset swap.
+- Validation: `npm run build` passed after the sedan asset swap.
+- Playwright validation for the sedan art:
+  - Level 1 initial screenshot showed the new sedan art under the dust mask with unchanged `maskBounds` (`180x340` at the same position).
+  - Level 1 cleaning-pass screenshot showed the dirt erase aligned over the new sprite with readable roof and body details revealed beneath.
+- Validation caveat: the rectangular dirt mask still covers the full vehicle bounds, so the transparent corners of the PNG naturally remain under the dirt overlay until cleaned. No gameplay alignment change was needed for this first art pass.
