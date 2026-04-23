@@ -223,4 +223,18 @@ export class MenuScene extends Phaser.Scene {
     this.spaceKey?.destroy()
     this.escapeKey?.destroy()
   }
+
+  public getDebugState(): Record<string, string | number | boolean> {
+    const savedLevel = SaveManager.load<number>(SAVE_KEYS.currentLevel, 1)
+    const highScore = SaveManager.load<number>(SAVE_KEYS.highScore, 0)
+
+    return {
+      mode: 'menu',
+      sceneKey: this.scene.key,
+      coordinateSystem: 'Origin is top-left. X increases right, Y increases down.',
+      currentLevel: savedLevel,
+      highScore,
+      muted: AudioManager.muted
+    }
+  }
 }

@@ -16,9 +16,13 @@ import { GameScene } from './scenes/GameScene'
 import { ResultScene } from './scenes/ResultScene'
 import { ScaleManager } from './core/ScaleManager'
 import { GAME_CONFIG } from './data/gameConfig'
+import { config as runtimeConfig } from './core/Config'
+import { registerSparkleWashTestBridge } from './dev/testBridge'
+
+const isAutomatedBrowser = runtimeConfig.isDev && navigator.webdriver === true
 
 const config: Phaser.Types.Core.GameConfig = {
-  type: Phaser.AUTO,
+  type: isAutomatedBrowser ? Phaser.CANVAS : Phaser.AUTO,
 
   // ScaleManager provides the full scale config block
   scale: ScaleManager.getPhaserScaleConfig(),
@@ -71,4 +75,6 @@ const config: Phaser.Types.Core.GameConfig = {
 }
 
 // Boot the game
-new Phaser.Game(config)
+const game = new Phaser.Game(config)
+
+registerSparkleWashTestBridge(game)

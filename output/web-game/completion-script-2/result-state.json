@@ -1,0 +1,17 @@
+{
+  "mode": "result",
+  "sceneKey": "ResultScene",
+  "coordinateSystem": "Origin is top-left. X increases right, Y increases down.",
+  "score": 1806,
+  "highScore": 1806,
+  "isNewHighScore": true,
+  "stars": 3,
+  "levelId": 1,
+  "levelName": "Dusty Sedan",
+  "isLastLevel": false,
+  "availableActions": [
+    "next_level",
+    "play_again",
+    "menu"
+  ]
+}

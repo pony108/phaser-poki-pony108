@@ -13,6 +13,38 @@ interface GameInitData {
   levelId?: number
 }
 
+interface GameDebugState {
+  mode: 'game'
+  sceneKey: string
+  coordinateSystem: string
+  level: {
+    id: number
+    name: string
+    dirtType: string
+    dirtLayers: number
+  }
+  progress: {
+    percent: number
+    cleanCells: number
+    totalCells: number
+  }
+  timerSeconds: number
+  activeTool: string
+  availableTools: string[]
+  effectiveTool: boolean
+  tutorialVisible: boolean
+  maskBounds: {
+    left: number
+    top: number
+    width: number
+    height: number
+  }
+  completion: {
+    finished: boolean
+    wasteRatio: number
+  }
+}
+
 export class GameScene extends Phaser.Scene {
   private dirtRT!: Phaser.GameObjects.RenderTexture
   private brush!: Phaser.GameObjects.Graphics
@@ -92,15 +124,13 @@ export class GameScene extends Phaser.Scene {
     this.createVehicleAndDirt()
     this.createParticles()
     this.createHUD()
+    this.checkAndUnlockTools()
     this.createToolsUI()
     this.setupInput()
 
     this.brush = this.make.graphics()
     this.weakBrush = this.make.graphics()
     this.updateBrush()
-
-    // Unlock any tools the player has earned by reaching this level
-    this.checkAndUnlockTools()
 
     // Wrong-tool flash text (hidden until needed)
     this.wrongToolWarningText = this.add.text(CX, CY + 30, '', {
@@ -502,6 +532,9 @@ export class GameScene extends Phaser.Scene {
     this.input.on(Phaser.Input.Events.POINTER_DOWN, (ptr: Phaser.Input.Pointer) => {
       if (this.isFinished) return
       const point = this.getPointerPosition(ptr)
+      if (!this.hasPlayerStarted && point.localX >= 0 && point.localY >= 0 && point.localX <= this.maskWidth && point.localY <= this.maskHeight) {
+        this.dismissTutorial()
+      }
       this.prevPointerX = point.sceneX
       this.prevPointerY = point.sceneY
       this.handleWipe(point.localX, point.localY)
@@ -520,12 +553,8 @@ export class GameScene extends Phaser.Scene {
       const steps = Math.max(1, Math.floor(dist / 10))
 
       // Dismiss tutorial on first real drag over the vehicle
-      if (!this.hasPlayerStarted) {
-        const lx = point.sceneX - this.maskLeft
-        const ly = point.sceneY - this.maskTop
-        if (lx >= 0 && ly >= 0 && lx <= this.maskWidth && ly <= this.maskHeight) {
-          this.dismissTutorial()
-        }
+      if (!this.hasPlayerStarted && point.localX >= 0 && point.localY >= 0 && point.localX <= this.maskWidth && point.localY <= this.maskHeight) {
+        this.dismissTutorial()
       }
 
       for (let i = 0; i <= steps; i++) {
@@ -788,5 +817,43 @@ export class GameScene extends Phaser.Scene {
     if (dt === 'rust' || dt === 'oil') return 'JET'
     if (dt === 'mud') return 'HOT'
     return 'JET'
+  }
+
+  public getDebugState(): GameDebugState {
+    const availableTools = Object.keys(this.toolIcons)
+    const progressRatio = this.totalCells > 0 ? this.cleanCells / this.totalCells : 0
+    const wasteRatio = this.totalWipeCalls > 0 ? this.wasteWipeCalls / this.totalWipeCalls : 0
+
+    return {
+      mode: 'game',
+      sceneKey: this.scene.key,
+      coordinateSystem: 'Origin is top-left. X increases right, Y increases down.',
+      level: {
+        id: this.level.id,
+        name: this.level.name,
+        dirtType: this.level.dirtType,
+        dirtLayers: this.level.dirtLayers
+      },
+      progress: {
+        percent: Math.floor(progressRatio * 100),
+        cleanCells: this.cleanCells,
+        totalCells: this.totalCells
+      },
+      timerSeconds: Math.floor(this.timeElapsedMs / 1000),
+      activeTool: this.activeTool,
+      availableTools,
+      effectiveTool: BALANCING.tools[this.activeTool].primaryDirt.includes(this.level.dirtType),
+      tutorialVisible: !this.hasPlayerStarted && !!this.tutorialContainer?.active,
+      maskBounds: {
+        left: this.maskLeft,
+        top: this.maskTop,
+        width: this.maskWidth,
+        height: this.maskHeight
+      },
+      completion: {
+        finished: this.isFinished,
+        wasteRatio: Number(wasteRatio.toFixed(2))
+      }
+    }
   }
 }

@@ -1,0 +1,33 @@
+{
+  "mode": "game",
+  "sceneKey": "GameScene",
+  "coordinateSystem": "Origin is top-left. X increases right, Y increases down.",
+  "level": {
+    "id": 2,
+    "name": "Grimy Hatchback",
+    "dirtType": "dust",
+    "dirtLayers": 1
+  },
+  "progress": {
+    "percent": 0,
+    "cleanCells": 0,
+    "totalCells": 760
+  },
+  "timerSeconds": 0,
+  "activeTool": "fan",
+  "availableTools": [
+    "fan"
+  ],
+  "effectiveTool": true,
+  "tutorialVisible": true,
+  "maskBounds": {
+    "left": 140,
+    "top": 157,
+    "width": 200,
+    "height": 380
+  },
+  "completion": {
+    "finished": false,
+    "wasteRatio": 0
+  }
+}

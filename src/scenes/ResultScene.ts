@@ -321,4 +321,24 @@ export class ResultScene extends Phaser.Scene {
     this.enterKey?.destroy()
     this.rKey?.destroy()
   }
+
+  public getDebugState(): Record<string, string | number | boolean | string[]> {
+    const availableActions = this.resultData.isLastLevel
+      ? ['play_again', 'menu']
+      : ['next_level', 'play_again', 'menu']
+
+    return {
+      mode: 'result',
+      sceneKey: this.scene.key,
+      coordinateSystem: 'Origin is top-left. X increases right, Y increases down.',
+      score: this.resultData.score,
+      highScore: this.resultData.highScore,
+      isNewHighScore: this.resultData.isNewHighScore,
+      stars: this.resultData.stars,
+      levelId: this.resultData.levelId,
+      levelName: this.resultData.levelName,
+      isLastLevel: this.resultData.isLastLevel,
+      availableActions
+    }
+  }
 }

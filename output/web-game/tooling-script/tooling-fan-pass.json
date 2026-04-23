@@ -1,0 +1,35 @@
+{
+  "mode": "game",
+  "sceneKey": "GameScene",
+  "coordinateSystem": "Origin is top-left. X increases right, Y increases down.",
+  "level": {
+    "id": 12,
+    "name": "Engine Block",
+    "dirtType": "oil",
+    "dirtLayers": 3
+  },
+  "progress": {
+    "percent": 0,
+    "cleanCells": 0,
+    "totalCells": 540
+  },
+  "timerSeconds": 1,
+  "activeTool": "fan",
+  "availableTools": [
+    "fan",
+    "jet",
+    "hot"
+  ],
+  "effectiveTool": false,
+  "tutorialVisible": true,
+  "maskBounds": {
+    "left": 150,
+    "top": 197,
+    "width": 180,
+    "height": 300
+  },
+  "completion": {
+    "finished": false,
+    "wasteRatio": 1
+  }
+}

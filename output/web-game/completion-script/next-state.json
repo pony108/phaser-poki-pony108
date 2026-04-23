@@ -1,0 +1,33 @@
+{
+  "mode": "game",
+  "sceneKey": "GameScene",
+  "coordinateSystem": "Origin is top-left. X increases right, Y increases down.",
+  "level": {
+    "id": 1,
+    "name": "Dusty Sedan",
+    "dirtType": "dust",
+    "dirtLayers": 1
+  },
+  "progress": {
+    "percent": 97,
+    "cleanCells": 597,
+    "totalCells": 612
+  },
+  "timerSeconds": 6,
+  "activeTool": "fan",
+  "availableTools": [
+    "fan"
+  ],
+  "effectiveTool": true,
+  "tutorialVisible": true,
+  "maskBounds": {
+    "left": 150,
+    "top": 177,
+    "width": 180,
+    "height": 340
+  },
+  "completion": {
+    "finished": false,
+    "wasteRatio": 0.68
+  }
+}

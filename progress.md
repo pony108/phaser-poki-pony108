@@ -1,0 +1,19 @@
+Original prompt: Build and iterate a playable web game in this workspace, validating changes with a Playwright loop.
+
+- Initial state: existing Sparkle Wash Phaser game already builds and has direct preload-to-game flow.
+- Decision: keep Sparkle Wash, keep direct-to-game flow, add dev-only Playwright hooks instead of replacing the concept.
+- Added dev-only test bridge in `src/dev/testBridge.ts`.
+- Added scene debug snapshots for `GameScene`, `MenuScene`, and `ResultScene`.
+- Hooked bridge registration into `src/main.ts`.
+- Verification: `npm run typecheck` passed, `npm run build` passed.
+- Installed local `playwright` package and Chromium runtime so the skill client and custom Playwright checks can run in this workspace.
+- Validation finding: WebGL screenshots were black under automation; fixed by using Phaser canvas renderer only for dev + `navigator.webdriver`.
+- Validation finding: tutorial overlay previously dismissed only on drag; fixed so the first valid pointer-down scrub inside the vehicle dismisses it too.
+- Validation finding: tool unlock ordering was wrong in `GameScene.create()`; fixed by applying unlocks before building the tool UI.
+- Playwright coverage completed:
+  - Smoke/client pass: direct boot into gameplay, tutorial visible, render/state hooks live.
+  - Core/client pass: cleaning progress increased and screenshot matched text state.
+  - Tooling/custom Playwright: reset -> jump to level 12 -> all tools visible -> wrong-tool warning shown with fan on oil -> jet selection confirmed -> jet cleaning progressed to 20%.
+  - Completion/custom Playwright: level 1 completed to `ResultScene` with 3 stars and new best -> `Enter` advanced to level 2.
+- Production check: latest `dist/assets/index-*.js` does not contain `__sparkleWashTest`, `render_game_to_text`, or `advanceTime`.
+- Remaining caveat: browser console may still emit a Cross-Origin-Opener-Policy warning during Playwright runs; it did not block gameplay or test results and appears browser/dev-server related rather than game-logic related.

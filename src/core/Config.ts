@@ -33,6 +33,6 @@ function detectIsMobile(): boolean {
 export const config: RuntimeConfig = {
   game: GAME_CONFIG,
   balancing: BALANCING,
-  isDev: detectIsDev(),
+  isDev: import.meta.env.DEV && detectIsDev(),
   isMobile: detectIsMobile()
 }
