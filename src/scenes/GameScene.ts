@@ -48,6 +48,11 @@ export class GameScene extends Phaser.Scene {
   private prevPointerX = 0
   private prevPointerY = 0
 
+  // Tutorial
+  private tutorialContainer!: Phaser.GameObjects.Container
+  private tutorialTween!: Phaser.Tweens.Tween
+  private hasPlayerStarted = false
+
   constructor() {
     super({ key: 'GameScene' })
   }
@@ -72,6 +77,8 @@ export class GameScene extends Phaser.Scene {
     this.activeTool = 'widesponge'
     this.toolIcons = {}
 
+    this.hasPlayerStarted = false
+
     this.createWorld()
     this.createVehicleAndDirt()
     this.createParticles()
@@ -81,6 +88,9 @@ export class GameScene extends Phaser.Scene {
 
     this.brush = this.make.graphics()
     this.updateBrush()
+
+    // Show tutorial shortly after gameplay is visible
+    this.time.delayedCall(600, () => this.createTutorial())
   }
 
   update(_time: number, delta: number): void {
@@ -92,6 +102,111 @@ export class GameScene extends Phaser.Scene {
   shutdown(): void {
     this.input.off(Phaser.Input.Events.POINTER_DOWN)
     this.input.off(Phaser.Input.Events.POINTER_MOVE)
+    if (this.tutorialTween?.isPlaying()) this.tutorialTween.stop()
+  }
+
+  // ─── Tutorial ────────────────────────────────────────────────────────────
+
+  private createTutorial(): void {
+    if (this.hasPlayerStarted || this.isFinished) return
+
+    // Anchor the tutorial over the centre of the vehicle
+    const handX = CX
+    const handY = this.maskTop + this.maskHeight * 0.35
+    const dragDist = 60 // px the hand will scrub left→right
+
+    // ── Hand graphic (finger pointing down) ──────────────────────────────────
+    const handGfx = this.make.graphics({ x: 0, y: 0 }, false)
+    // Finger body
+    handGfx.fillStyle(0xffe0c8, 1)
+    handGfx.fillRoundedRect(-10, -30, 20, 40, 8)
+    // Fingernail
+    handGfx.fillStyle(0xffb8a0, 1)
+    handGfx.fillRoundedRect(-8, -30, 16, 12, 5)
+    // Knuckle bump
+    handGfx.fillStyle(0xffd0b0, 1)
+    handGfx.fillCircle(0, 12, 14)
+    handGfx.fillStyle(0xffe0c8, 1)
+    handGfx.fillCircle(0, 12, 10)
+    // Tip dot
+    handGfx.fillStyle(0xffc8a0, 1)
+    handGfx.fillCircle(0, -30, 8)
+
+    const handTex = handGfx.generateTexture('__tutorial_hand__', 48, 64)
+    handGfx.destroy()
+    void handTex  // suppress unused warning
+
+    const hand = this.add.image(0, 0, '__tutorial_hand__').setOrigin(0.5, 0)
+
+    // ── Ripple circle under the finger tip ───────────────────────────────────
+    const ripple = this.add.graphics()
+    ripple.lineStyle(2, 0xffffff, 0.6)
+    ripple.strokeCircle(0, -30, 14)
+
+    // ── "Drag to wash" label ──────────────────────────────────────────────────
+    const label = this.add.text(0, 52, 'Drag to wash', {
+      fontFamily: 'Arial, sans-serif',
+      fontSize: '18px',
+      color: '#ffffff',
+      fontStyle: 'bold',
+      stroke: '#000000',
+      strokeThickness: 4,
+      resolution: 2
+    }).setOrigin(0.5, 0)
+
+    // Container at start of scrub range
+    this.tutorialContainer = this.add.container(handX - dragDist / 2, handY, [ripple, hand, label])
+    this.tutorialContainer.setDepth(100)
+
+    // ── Looping scrub tween ───────────────────────────────────────────────────
+    this.tutorialTween = this.tweens.add({
+      targets: this.tutorialContainer,
+      x: handX + dragDist / 2,
+      duration: 800,
+      ease: 'Sine.InOut',
+      yoyo: true,
+      repeat: -1,
+      onStart: () => {
+        // Pulse in
+        this.tweens.add({
+          targets: this.tutorialContainer,
+          scaleX: { from: 0, to: 1 },
+          scaleY: { from: 0, to: 1 },
+          duration: 250,
+          ease: 'Back.Out'
+        })
+      }
+    })
+
+    // Pulse the ripple alpha
+    this.tweens.add({
+      targets: ripple,
+      alpha: { from: 0.8, to: 0 },
+      scaleX: { from: 1, to: 2 },
+      scaleY: { from: 1, to: 2 },
+      duration: 700,
+      repeat: -1,
+      ease: 'Quad.Out'
+    })
+  }
+
+  private dismissTutorial(): void {
+    if (this.hasPlayerStarted) return
+    this.hasPlayerStarted = true
+
+    if (this.tutorialTween?.isPlaying()) this.tutorialTween.stop()
+
+    if (this.tutorialContainer) {
+      this.tweens.add({
+        targets: this.tutorialContainer,
+        alpha: 0,
+        scaleX: 0.8,
+        scaleY: 0.8,
+        duration: 200,
+        ease: 'Quad.In',
+        onComplete: () => this.tutorialContainer.destroy()
+      })
+    }
   }
 
   // ─── World ────────────────────────────────────────────────────────────────
@@ -321,6 +436,15 @@ export class GameScene extends Phaser.Scene {
         point.sceneY
       )
       const steps = Math.max(1, Math.floor(dist / 10))
+
+      // Dismiss tutorial on first real drag over the vehicle
+      if (!this.hasPlayerStarted) {
+        const lx = point.sceneX - this.maskLeft
+        const ly = point.sceneY - this.maskTop
+        if (lx >= 0 && ly >= 0 && lx <= this.maskWidth && ly <= this.maskHeight) {
+          this.dismissTutorial()
+        }
+      }
 
       for (let i = 0; i <= steps; i++) {
         const tx = Phaser.Math.Interpolation.Linear([this.prevPointerX, point.sceneX], i / steps)

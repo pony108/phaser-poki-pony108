@@ -36,11 +36,11 @@ export class PreloadScene extends Phaser.Scene {
   }
 
   create(): void {
-    // Fade out then transition to MenuScene
+    // Fade out then jump straight into gameplay — no menu friction
     this.cameras.main.fadeOut(BALANCING.sceneFadeDuration, 0, 0, 0)
     this.cameras.main.once(
       Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE,
-      () => this.scene.start('MenuScene')
+      () => this.scene.start('GameScene')
     )
   }
 
