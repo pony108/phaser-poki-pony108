@@ -702,4 +702,91 @@ export class GameScene extends Phaser.Scene {
       })
     })
   }
+
+  // ─── Tool Unlock ──────────────────────────────────────────────────────────
+
+  private checkAndUnlockTools(): void {
+    const unlocked = SaveManager.load<string[]>(SAVE_KEYS.unlockedTools, ['fan'])
+    const newlyUnlocked: string[] = []
+
+    for (const [key, unlockLevel] of Object.entries(BALANCING.toolUnlockAtLevel)) {
+      if (this.level.id >= unlockLevel && !unlocked.includes(key)) {
+        unlocked.push(key)
+        newlyUnlocked.push(key)
+      }
+    }
+
+    if (newlyUnlocked.length > 0) {
+      SaveManager.save(SAVE_KEYS.unlockedTools, unlocked)
+      // Rebuild tool UI with new tools
+      newlyUnlocked.forEach(k => this.showToolUnlockBanner(k))
+    }
+  }
+
+  private showToolUnlockBanner(toolKey: string): void {
+    const tool = BALANCING.tools[toolKey]
+    if (!tool) return
+
+    const banner = this.add.text(CX, GAME_CONFIG.height - 130,
+      `🔧 NEW NOZZLE: ${tool.name}!`, {
+      fontFamily: 'Arial Black, Arial, sans-serif',
+      fontSize: '22px',
+      color: '#ffffff',
+      stroke: '#1a1a2e',
+      strokeThickness: 6,
+      resolution: 2
+    }).setOrigin(0.5).setDepth(300).setAlpha(0).setScale(0.5)
+
+    this.tweens.add({
+      targets: banner,
+      alpha: 1,
+      scaleX: 1,
+      scaleY: 1,
+      duration: 350,
+      ease: 'Back.Out',
+      onComplete: () => {
+        this.time.delayedCall(2200, () => {
+          this.tweens.add({
+            targets: banner,
+            alpha: 0,
+            y: GAME_CONFIG.height - 160,
+            duration: 400,
+            ease: 'Quad.In',
+            onComplete: () => banner.destroy()
+          })
+        })
+      }
+    })
+  }
+
+  // ─── Wrong-Tool Warning ───────────────────────────────────────────────────
+
+  private showWrongToolWarning(): void {
+    if (this.wrongToolWarningTimer > 0) return
+    this.wrongToolWarningTimer = BALANCING.wrongToolWarningCooldown
+
+    const betterTool = this.getBetterToolName()
+    this.wrongToolWarningText.setText(`⚠️ Try ${betterTool}!`)
+    this.wrongToolWarningText.setAlpha(1)
+
+    this.tweens.killTweensOf(this.wrongToolWarningText)
+    this.tweens.add({
+      targets: this.wrongToolWarningText,
+      alpha: 0,
+      y: CY + 10,
+      duration: 1200,
+      delay: 600,
+      ease: 'Quad.In',
+      onComplete: () => {
+        this.wrongToolWarningText.setY(CY + 30)
+      }
+    })
+  }
+
+  private getBetterToolName(): string {
+    const dt = this.level.dirtType
+    if (dt === 'rust' || dt === 'oil') return 'JET'
+    if (dt === 'mud') return 'HOT'
+    return 'JET'
+  }
 }
