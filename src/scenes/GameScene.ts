@@ -43,9 +43,40 @@ interface GameDebugState {
     finished: boolean
     wasteRatio: number
   }
+  bonusZones: {
+    total: number
+    completed: number
+    score: number
+    zones: Array<{
+      x: number
+      y: number
+      width: number
+      height: number
+      completed: boolean
+    }>
+  }
+}
+
+interface BonusZoneState {
+  localX: number
+  localY: number
+  width: number
+  height: number
+  centerX: number
+  centerY: number
+  rowStart: number
+  rowEnd: number
+  colStart: number
+  colEnd: number
+  totalCells: number
+  remainingCells: number
+  completed: boolean
+  overlay: Phaser.GameObjects.Rectangle
 }
 
 export class GameScene extends Phaser.Scene {
+  private static readonly BONUS_ZONE_SCORE = 250
+
   private dirtRT!: Phaser.GameObjects.RenderTexture
   private brush!: Phaser.GameObjects.Graphics
 
@@ -56,6 +87,7 @@ export class GameScene extends Phaser.Scene {
   private progressText!: Phaser.GameObjects.Text
   private progressFill!: Phaser.GameObjects.Rectangle
   private timerText!: Phaser.GameObjects.Text
+  private bonusText?: Phaser.GameObjects.Text
   private toolIcons: Record<string, Phaser.GameObjects.Image> = {}
   private readonly progressBarW = GAME_CONFIG.width - 40
 
@@ -82,6 +114,8 @@ export class GameScene extends Phaser.Scene {
 
   // Multi-layer dirt tracking
   private layerGrid: number[][] = []
+  private bonusZones: BonusZoneState[] = []
+  private bonusScore = 0
 
   // Wrong-tool feedback
   private weakBrush!: Phaser.GameObjects.Graphics
@@ -117,6 +151,8 @@ export class GameScene extends Phaser.Scene {
     this.wrongToolWarningTimer = 0
     this.activeTool = 'fan'
     this.toolIcons = {}
+    this.bonusZones = []
+    this.bonusScore = 0
 
     this.hasPlayerStarted = false
 
@@ -359,6 +395,8 @@ export class GameScene extends Phaser.Scene {
         this.totalCells++
       }
     }
+
+    this.createBonusZones()
   }
 
   private drawDirt(vw: number, vh: number): void {
@@ -468,6 +506,16 @@ export class GameScene extends Phaser.Scene {
       color: '#aaaacc',
       fontStyle: 'bold'
     }).setOrigin(1, 0)
+
+    if (this.bonusZones.length > 0) {
+      this.bonusText = this.add.text(GAME_CONFIG.width - 20, 64, '', {
+        fontFamily: 'Arial, sans-serif',
+        fontSize: '12px',
+        color: '#f1c40f',
+        fontStyle: 'bold'
+      }).setOrigin(1, 0)
+      this.updateBonusHud()
+    }
   }
 
   // ─── Tools UI ─────────────────────────────────────────────────────────────
@@ -639,6 +687,7 @@ export class GameScene extends Phaser.Scene {
               this.grid[r][c] = true
               cellsCleanedNow++
               this.cleanCells++
+              this.updateBonusZoneCell(r, c)
             }
           }
         }
@@ -679,7 +728,8 @@ export class GameScene extends Phaser.Scene {
     const timeBonus = Math.max(0.5, 2.0 - seconds / 60)
     const wasteFraction = this.totalWipeCalls > 0 ? this.wasteWipeCalls / this.totalWipeCalls : 0
     const efficiency = 1.0 - wasteFraction * 0.3
-    const finalScore = Math.floor(BALANCING.baseScore * timeBonus * efficiency)
+    const baseScore = Math.floor(BALANCING.baseScore * timeBonus * efficiency)
+    const finalScore = baseScore + this.bonusScore
 
     const stars = calcStars(seconds, this.level.parTimeSeconds)
 
@@ -726,7 +776,10 @@ export class GameScene extends Phaser.Scene {
           stars,
           levelId: this.level.id,
           levelName: this.level.name,
-          isLastLevel: isLastLevel(this.level.id)
+          isLastLevel: isLastLevel(this.level.id),
+          bonusZonesTotal: this.bonusZones.length,
+          bonusZonesCompleted: this.getCompletedBonusZoneCount(),
+          bonusScore: this.bonusScore
         })
       })
     })
@@ -819,6 +872,112 @@ export class GameScene extends Phaser.Scene {
     return 'JET'
   }
 
+  private createBonusZones(): void {
+    const definitions = this.level.bonusZones ?? []
+    this.bonusZones = definitions.map(([localX, localY, width, height]) => {
+      const overlay = this.add.rectangle(
+        this.maskLeft + localX + width / 2,
+        this.maskTop + localY + height / 2,
+        width,
+        height,
+        0xf1c40f,
+        0.08
+      )
+        .setStrokeStyle(2, 0xf1c40f, 0.65)
+        .setDepth(12)
+
+      const zone: BonusZoneState = {
+        localX,
+        localY,
+        width,
+        height,
+        centerX: this.maskLeft + localX + width / 2,
+        centerY: this.maskTop + localY + height / 2,
+        rowStart: Math.max(0, Math.floor(localY / this.CELL_SIZE)),
+        rowEnd: Math.min(this.grid.length - 1, Math.floor((localY + height) / this.CELL_SIZE)),
+        colStart: Math.max(0, Math.floor(localX / this.CELL_SIZE)),
+        colEnd: Math.min((this.grid[0]?.length ?? 1) - 1, Math.floor((localX + width) / this.CELL_SIZE)),
+        totalCells: 0,
+        remainingCells: 0,
+        completed: false,
+        overlay
+      }
+
+      for (let row = zone.rowStart; row <= zone.rowEnd; row++) {
+        for (let col = zone.colStart; col <= zone.colEnd; col++) {
+          const centerX = col * this.CELL_SIZE + this.CELL_SIZE / 2
+          const centerY = row * this.CELL_SIZE + this.CELL_SIZE / 2
+          if (this.isPointInsideBonusZone(zone, centerX, centerY)) {
+            zone.totalCells++
+            zone.remainingCells++
+          }
+        }
+      }
+
+      return zone
+    })
+  }
+
+  private updateBonusZoneCell(row: number, col: number): void {
+    if (this.bonusZones.length === 0) return
+
+    const cellCenterX = col * this.CELL_SIZE + this.CELL_SIZE / 2
+    const cellCenterY = row * this.CELL_SIZE + this.CELL_SIZE / 2
+
+    for (const zone of this.bonusZones) {
+      if (zone.completed) continue
+      if (row < zone.rowStart || row > zone.rowEnd || col < zone.colStart || col > zone.colEnd) continue
+      if (!this.isPointInsideBonusZone(zone, cellCenterX, cellCenterY)) continue
+
+      zone.remainingCells = Math.max(0, zone.remainingCells - 1)
+      if (zone.remainingCells === 0 && zone.totalCells > 0) {
+        this.completeBonusZone(zone)
+      }
+    }
+  }
+
+  private completeBonusZone(zone: BonusZoneState): void {
+    zone.completed = true
+    this.bonusScore += GameScene.BONUS_ZONE_SCORE
+    this.updateBonusHud()
+
+    zone.overlay.setFillStyle(0x2ecc71, 0.18)
+    zone.overlay.setStrokeStyle(3, 0x2ecc71, 1)
+
+    this.sparkleEmitter.explode(28, zone.centerX, zone.centerY)
+    this.effectEmitter.emitParticleAt(zone.centerX, zone.centerY, 12)
+
+    this.tweens.add({
+      targets: zone.overlay,
+      alpha: 0.25,
+      duration: 220,
+      yoyo: true,
+      repeat: 1,
+      ease: 'Sine.Out'
+    })
+  }
+
+  private updateBonusHud(): void {
+    if (!this.bonusText) return
+
+    this.bonusText.setText(
+      `BONUS ${this.getCompletedBonusZoneCount()}/${this.bonusZones.length}  +${this.bonusScore}`
+    )
+  }
+
+  private getCompletedBonusZoneCount(): number {
+    return this.bonusZones.filter((zone) => zone.completed).length
+  }
+
+  private isPointInsideBonusZone(zone: BonusZoneState, x: number, y: number): boolean {
+    return (
+      x >= zone.localX &&
+      x <= zone.localX + zone.width &&
+      y >= zone.localY &&
+      y <= zone.localY + zone.height
+    )
+  }
+
   public getDebugState(): GameDebugState {
     const availableTools = Object.keys(this.toolIcons)
     const progressRatio = this.totalCells > 0 ? this.cleanCells / this.totalCells : 0
@@ -853,6 +1012,18 @@ export class GameScene extends Phaser.Scene {
       completion: {
         finished: this.isFinished,
         wasteRatio: Number(wasteRatio.toFixed(2))
+      },
+      bonusZones: {
+        total: this.bonusZones.length,
+        completed: this.getCompletedBonusZoneCount(),
+        score: this.bonusScore,
+        zones: this.bonusZones.map((zone) => ({
+          x: zone.localX,
+          y: zone.localY,
+          width: zone.width,
+          height: zone.height,
+          completed: zone.completed
+        }))
       }
     }
   }

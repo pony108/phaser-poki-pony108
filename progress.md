@@ -17,3 +17,14 @@ Original prompt: Build and iterate a playable web game in this workspace, valida
   - Completion/custom Playwright: level 1 completed to `ResultScene` with 3 stars and new best -> `Enter` advanced to level 2.
 - Production check: latest `dist/assets/index-*.js` does not contain `__sparkleWashTest`, `render_game_to_text`, or `advanceTime`.
 - Remaining caveat: browser console may still emit a Cross-Origin-Opener-Policy warning during Playwright runs; it did not block gameplay or test results and appears browser/dev-server related rather than game-logic related.
+- Implemented World 4 bonus zones in `GameScene`.
+- Bonus zones now render as dirt-mask-local overlays, track full cell cleanup against the existing `layerGrid`, flash green on completion, and award fixed bonus score once per zone.
+- Added bonus HUD summary in gameplay and threaded `bonusZonesTotal`, `bonusZonesCompleted`, and `bonusScore` through the `ResultScene` payload and debug output.
+- Validation: `npm run typecheck` passed after the bonus-zone changes.
+- Validation: `npm run build` passed after the bonus-zone changes.
+- Playwright validation for bonus zones:
+  - Level 1 debug state correctly reported `bonusZones.total = 0`.
+  - Level 16 initial screenshot showed the gold bonus-zone overlay aligned over the rust mask.
+  - Level 16 bonus-complete screenshot showed `BONUS 1/1 +250` and the zone outline flipped to green after cleanup.
+  - Level 16 result screenshot and debug state showed `bonusZonesCompleted = 1`, `bonusScore = 250`, and the visible result-card summary.
+- Validation finding: the first result-card layout version hid the bonus summary behind the action buttons; fixed by pushing the buttons lower when bonus summary is present.

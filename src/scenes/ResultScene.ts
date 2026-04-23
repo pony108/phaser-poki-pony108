@@ -27,6 +27,9 @@ interface ResultData {
   levelId: number
   levelName: string
   isLastLevel: boolean
+  bonusZonesTotal: number
+  bonusZonesCompleted: number
+  bonusScore: number
 }
 
 const CX = GAME_CONFIG.width / 2
@@ -44,7 +47,10 @@ export class ResultScene extends Phaser.Scene {
     stars: 1,
     levelId: 1,
     levelName: '',
-    isLastLevel: false
+    isLastLevel: false,
+    bonusZonesTotal: 0,
+    bonusZonesCompleted: 0,
+    bonusScore: 0
   }
 
   private enterKey!: Phaser.Input.Keyboard.Key
@@ -62,7 +68,10 @@ export class ResultScene extends Phaser.Scene {
       stars:         data?.stars         ?? 1,
       levelId:       data?.levelId       ?? 1,
       levelName:     data?.levelName     ?? '',
-      isLastLevel:   data?.isLastLevel   ?? false
+      isLastLevel:   data?.isLastLevel   ?? false,
+      bonusZonesTotal: data?.bonusZonesTotal ?? 0,
+      bonusZonesCompleted: data?.bonusZonesCompleted ?? 0,
+      bonusScore: data?.bonusScore ?? 0
     }
   }
 
@@ -146,14 +155,23 @@ export class ResultScene extends Phaser.Scene {
   // ─── Score Card ───────────────────────────────────────────────────────────
 
   private createScoreCard(): void {
-    const { score, highScore, isNewHighScore } = this.resultData
+    const {
+      score,
+      highScore,
+      isNewHighScore,
+      bonusZonesTotal,
+      bonusZonesCompleted,
+      bonusScore
+    } = this.resultData
+    const hasBonusSummary = bonusZonesTotal > 0
+    const cardHeight = hasBonusSummary ? 170 : 130
 
     // Card background
     const card = this.add.graphics()
     card.fillStyle(0x16213e, 0.8)
-    card.fillRoundedRect(CX - 160, CY - 145, 320, 130, 16)
+    card.fillRoundedRect(CX - 160, CY - 145, 320, cardHeight, 16)
     card.lineStyle(2, 0x4a90d9, 0.4)
-    card.strokeRoundedRect(CX - 160, CY - 145, 320, 130, 16)
+    card.strokeRoundedRect(CX - 160, CY - 145, 320, cardHeight, 16)
 
     this.add.text(CX, CY - 120, 'Score', {
       fontSize: '16px',
@@ -213,13 +231,30 @@ export class ResultScene extends Phaser.Scene {
         resolution: 2
       }).setOrigin(0.5)
     }
+
+    if (hasBonusSummary) {
+      this.add.text(CX, CY + 4, `Bonus zones: ${bonusZonesCompleted}/${bonusZonesTotal}`, {
+        fontSize: '15px',
+        fontFamily: 'Arial, sans-serif',
+        color: '#f1c40f',
+        fontStyle: 'bold',
+        resolution: 2
+      }).setOrigin(0.5)
+
+      this.add.text(CX, CY + 24, `Bonus score: +${formatScore(bonusScore)}`, {
+        fontSize: '14px',
+        fontFamily: 'Arial, sans-serif',
+        color: '#aaaacc',
+        resolution: 2
+      }).setOrigin(0.5)
+    }
   }
 
   // ─── Buttons ──────────────────────────────────────────────────────────────
 
   private createButtons(): void {
-    const { isLastLevel, levelId } = this.resultData
-    let yOffset = CY + 30
+    const { isLastLevel, levelId, bonusZonesTotal } = this.resultData
+    let yOffset = bonusZonesTotal > 0 ? CY + 72 : CY + 30
 
     // NEXT LEVEL — only if there is a next level
     if (!isLastLevel) {
@@ -338,6 +373,9 @@ export class ResultScene extends Phaser.Scene {
       levelId: this.resultData.levelId,
       levelName: this.resultData.levelName,
       isLastLevel: this.resultData.isLastLevel,
+      bonusZonesTotal: this.resultData.bonusZonesTotal,
+      bonusZonesCompleted: this.resultData.bonusZonesCompleted,
+      bonusScore: this.resultData.bonusScore,
       availableActions
     }
   }
