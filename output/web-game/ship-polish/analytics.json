@@ -1,0 +1,86 @@
+[
+  {
+    "event": "level_shown",
+    "payload": {
+      "levelId": 1,
+      "world": 1,
+      "dirtType": "dust"
+    },
+    "timestamp": 1777918679363
+  },
+  {
+    "event": "level_shown",
+    "payload": {
+      "levelId": 1,
+      "world": 1,
+      "dirtType": "dust"
+    },
+    "timestamp": 1777918684415
+  },
+  {
+    "event": "first_wipe_started",
+    "payload": {
+      "levelId": 1,
+      "world": 1,
+      "tool": "fan"
+    },
+    "timestamp": 1777918685555
+  },
+  {
+    "event": "tool_unlocked",
+    "payload": {
+      "levelId": 12,
+      "tools": "jet,hot"
+    },
+    "timestamp": 1777918686520
+  },
+  {
+    "event": "level_shown",
+    "payload": {
+      "levelId": 12,
+      "world": 3,
+      "dirtType": "oil"
+    },
+    "timestamp": 1777918686523
+  },
+  {
+    "event": "level_shown",
+    "payload": {
+      "levelId": 1,
+      "world": 1,
+      "dirtType": "dust"
+    },
+    "timestamp": 1777918687713
+  },
+  {
+    "event": "first_wipe_started",
+    "payload": {
+      "levelId": 1,
+      "world": 1,
+      "tool": "fan"
+    },
+    "timestamp": 1777918688519
+  },
+  {
+    "event": "level_completed",
+    "payload": {
+      "levelId": 1,
+      "world": 1,
+      "stars": 3,
+      "score": 1598,
+      "timeSeconds": 5.65
+    },
+    "timestamp": 1777918693368
+  },
+  {
+    "event": "result_screen_shown",
+    "payload": {
+      "levelId": 1,
+      "stars": 3,
+      "score": 1598,
+      "bonusZonesCompleted": 0,
+      "rewardOffer": "score"
+    },
+    "timestamp": 1777918695752
+  }
+]

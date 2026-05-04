@@ -101,5 +101,13 @@ export const SAVE_KEYS = {
    * Record<levelId, true> — which levels have been completed at least once.
    * Used to determine world-unlock threshold (3 of 5 per world).
    */
-  levelCompleted: 'level_completed'
+  levelCompleted: 'level_completed',
+  /** Cash earned from completed wash jobs. */
+  cash: 'cash',
+  /** Record<upgradeKey, level> for permanent in-game upgrades. */
+  ownedUpgrades: 'owned_upgrades',
+  /** Cosmetic garage progression level. */
+  garageLevel: 'garage_level',
+  /** Record<jobId, true> for completed job flow tracking. */
+  completedJobs: 'completed_jobs'
 } as const

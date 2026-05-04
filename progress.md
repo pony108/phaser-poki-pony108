@@ -36,3 +36,139 @@ Original prompt: Build and iterate a playable web game in this workspace, valida
   - Level 1 initial screenshot showed the new sedan art under the dust mask with unchanged `maskBounds` (`180x340` at the same position).
   - Level 1 cleaning-pass screenshot showed the dirt erase aligned over the new sprite with readable roof and body details revealed beneath.
 - Validation caveat: the rectangular dirt mask still covers the full vehicle bounds, so the transparent corners of the PNG naturally remain under the dirt overlay until cleaned. No gameplay alignment change was needed for this first art pass.
+- Ship-first polish pass implemented while keeping direct-to-game startup.
+- Rebalanced early cleaning in `src/data/balancing.ts`:
+  - fan radius reduced to `72`
+  - fan strength reduced to `0.42`
+  - jet strength reduced to `1.35`
+  - hot radius reduced to `52`
+  - hot strength reduced to `0.95`
+  - completion threshold centralized as `BALANCING.completionPercent = 98`
+- Added lightweight analytics in `src/core/Analytics.ts` and wired scene events for:
+  - `menu_viewed`
+  - `game_started`
+  - `level_shown`
+  - `first_wipe_started`
+  - `tool_selected`
+  - `tool_unlocked`
+  - `level_completed`
+  - `result_screen_shown`
+  - `next_level_selected`
+  - `replay_selected`
+  - `menu_selected_from_result`
+  - `reward_offer_claimed` / `reward_offer_declined`
+- Added real runtime assets:
+  - `public/assets/vehicles/vehicle_1.png`
+  - `public/assets/vehicles/vehicle_2.png`
+  - `public/assets/vehicles/vehicle_3.png`
+  - `public/assets/vehicles/vehicle_4.png`
+  - `public/assets/vehicles/vehicle_9.png`
+  - `public/assets/audio/spray_loop.wav`
+  - `public/assets/audio/sfx_clear.wav`
+  - `public/assets/audio/sfx_switch.wav`
+  - `public/assets/audio/sfx_score.wav`
+- Updated `PreloadScene` to load the new vehicle/audio assets while leaving vehicles `5` to `8` procedural for now.
+- Updated `GameScene`:
+  - spray loop starts/stops with wipe input
+  - clear/switch/complete SFX now play through `AudioManager`
+  - progression HUD shows world progress and next unlock
+  - dirt colours/opacities for dust/mud/oil/rust were lightened to preserve silhouette readability
+  - logical cleaning now respects tool `strength`, not just wrong-tool penalties
+- Updated `ResultScene`:
+  - added progression preview card
+  - added rewarded button using Poki `rewardedBreak()`
+  - reward grants early tool unlock when a tool is still locked, otherwise a score bonus
+  - added debug fields for reward/progression state
+- Updated `MenuScene` to show current world/progress/tool summary when manually opened.
+- Validation: `npm run typecheck` passed after the ship-first polish pass.
+- Validation: `npm run build` passed after the ship-first polish pass.
+- Playwright validation for ship-first polish:
+  - `output/web-game/ship-polish/level1-single-pass.json` showed level 1 at `75%` after one vertical scrub, confirming the early level no longer near-completes in a single pass.
+  - `output/web-game/ship-polish/level1-single-pass.png` showed the new sedan art with a visible cleaned lane and intact HUD progression labels.
+  - `output/web-game/ship-polish/level12-initial.png` showed the engine-block art readable under the lighter oil treatment, with all three tools visible after jumping to level 12.
+  - `output/web-game/ship-polish/level1-result-fixed.png` showed the reward card and all action buttons fitting on-screen after a layout fix.
+  - `output/web-game/ship-polish/analytics.json` confirmed the new gameplay/result analytics events were emitted.
+  - `output/web-game/ship-polish/client-smoke/shot-0.png` plus `state-0.json` confirmed the standard Playwright client now reaches `GameScene` and sees the progression HUD.
+- Validation finding: the first rewarded-result layout clipped the `MENU` button off-screen; fixed by tightening button heights and spacing.
+- Remaining caveats / next steps:
+  - vehicles `5` to `8` are still procedural placeholders and remain the next art-quality gap
+  - the reward path was not ad-completed in automation, so the claim branch is code-validated and state-validated but not fully end-to-end ad-validated against a live Poki ad response
+  - Playwright still reports the existing COOP browser warning, which did not block gameplay validation
+
+- Continued `plan.md` implementation with the first meta-flow tranche:
+  - Added persistent cash and upgrade save keys.
+  - Added `EconomySystem` for cash rewards.
+  - Added `UpgradeSystem` for pressure/spray-width/soap-quality upgrade levels, pricing, purchases, and tool-stat application.
+  - Added garage arrival flow in `GameScene`: vehicle slides into the bay, customer bubble appears, tap/click skips directly into cleaning.
+  - Added contextual feedback messages such as `Use FAN on DUST` and `MUD needs HOT`.
+  - Added progress milestone pulse feedback and upgraded tool stats in the wipe loop.
+  - Added result-screen garage upgrade shop with cash totals, affordable/locked buy buttons, and persisted purchases.
+  - Extended `render_game_to_text()` game/result payloads with phase, recommended tool, feedback message, customer bubble state, cash, owned upgrades, and upgrade offers.
+- Validation after meta-flow tranche:
+  - `npm run typecheck` passed.
+  - `npm run build` passed.
+  - Custom Playwright screenshots in `output/web-game/plan-impl-fixed/` confirmed arrival bubble, cleaning phase, wrong-tool feedback on mud, result upgrade shop, and persisted upgrade purchase.
+  - Standard develop-web-game client run generated `output/web-game/plan-impl-fixed/client-standard/shot-0.png` and matching state JSON; screenshot showed direct-to-game cleaning UI, progression HUD, tutorial prompt, and readable car art.
+- Validation caveat:
+  - The standard client still stops after the first capture because Chromium records the existing Cross-Origin-Opener-Policy warning as `console.error`. Retesting on `127.0.0.1` produced the same external warning. Gameplay state and screenshots were valid, and no new game-code error appeared.
+- Next implementation TODOs:
+  - Replace vehicles `5` to `8` with real assets or hide those levels until art is ready.
+  - Remove or properly replace the hidden legacy rewarded-result fallback once the new cash shop is the primary post-job flow.
+  - Add part maps (`hood`, `windows`, `wheels`, etc.) so feedback can say exactly which part is clean.
+  - Add a real `Foam/Shampoo` prep state before mud/oil/rust instead of only tool effectiveness multipliers.
+  - Add a COOP-warning filter or dev/Poki stub for Playwright so the standard client can complete multi-iteration runs without stopping on the browser warning.
+
+- Continued `plan.md` with Game Studio / Phaser 2D path: implemented vehicle part maps and part-completion rewards.
+- Added `src/data/vehicleParts.ts` with asset-local part rectangles for car/truck/engine layouts.
+- Added part tracking to `GameScene`:
+  - each clean grid cell now updates bonus zones and vehicle parts
+  - completing a part emits sparkles, shows a floating `PART CLEAN +$` label, updates `feedbackMessage`, and increments `PARTS x/y`
+  - debug state now exposes part totals, per-part progress, completion state, current hint, and part cash bonus
+- Added part cash reward to economy:
+  - `BALANCING.cash.partCompleteCash = 20`
+  - `EconomySystem.calculateCashReward()` now includes completed-part cash
+  - `ResultScene` now receives and displays `partsTotal`, `partsCompleted`, and `partCashBonus`
+- Validation after part-completion pass:
+  - `npm run typecheck` passed.
+  - `npm run build` passed.
+  - Custom Playwright artifacts written to `output/web-game/plan-parts/`.
+  - `after-hood-clean.json` showed `parts.completed = 1`, `cashBonus = 20`, and `feedbackMessage = "Hood clean"`.
+  - `after-hood-clean.png` visually showed `PARTS 1/5 +$20`, sparkle feedback, and the floating `HOOD CLEAN +$20` label.
+  - `after-wide-clean.json` reached `ResultScene` with `partsCompleted = 5`, `partCashBonus = 100`, `cashEarned = 379`, and upgrade offers still available.
+- Validation caveat:
+  - Playwright still logs the existing Poki boot / COOP warnings in dev automation; no new gameplay exception was observed.
+- Updated next TODOs:
+  - Add part-specific dirty hints before completion, not only after a part is clean.
+  - Add a prep-state tool such as Foam/Shampoo and make mud/oil require treatment before final pressure cleaning.
+  - Add real visual overlays/masks for parts so authored parts match exact PNG silhouettes instead of rectangular approximations.
+
+- Continued `plan.md` with Game Studio / Phaser 2D path: implemented Foam pre-treatment.
+- Added `FOAM` as a fourth tool:
+  - generated runtime icon `tool_foam`
+  - unlocks at level 6 alongside `JET`
+  - marks prep cells but does not directly remove dirt layers
+- Added prep gameplay to `GameScene`:
+  - non-dust dirt now has a prep grid and `PREP x%` HUD line
+  - levels with mud/oil/rust first recommend `FOAM`
+  - after enough cells are prepped, the recommendation switches to `JET`
+  - using a final cleaning tool before prep applies only `BALANCING.unpreppedStrengthFactor`
+  - foam renders as a pale bubbly overlay above dirt, then pressure cleaning reveals the surface underneath
+  - debug state now exposes `prep.required`, `prep.percent`, `prep.preppedCells`, and `prep.totalCells`
+- Fixed a design inconsistency from the previous loop:
+  - `JET` now unlocks at level 6, so the first mud job has both the prep tool and the follow-up pressure tool available.
+  - Mud recommendation after prep now uses `JET`, not locked `HOT`.
+- Validation after Foam pass:
+  - `npm run typecheck` passed.
+  - `npm run build` passed.
+  - Custom Playwright artifacts written to `output/web-game/plan-foam-fixed/`.
+  - `level6-start.json` showed `availableTools = fan,foam,jet`, `recommendedTool = FOAM`, `prep.required = true`, and `prep.percent = 0`.
+  - `foam-prepped.json` showed `prep.percent = 80`, `recommendedTool = JET`, and `progress.percent = 0`, confirming foam preps without directly completing dirt.
+  - `foam-prepped.png` visually showed foam coverage plus HUD `PREP 80% Use JET now`.
+  - `jet-after-foam.json` showed `activeTool = jet`, `progress.percent = 35`, and one vehicle part completed after pressure cleaning.
+- Validation caveat:
+  - A test-only race can occur if `resetProgress()` and `startLevel()` are called in the same browser tick; use localStorage clear + `startLevel()` for isolated non-level-1 scenarios.
+  - COOP warning remains in browser automation and is still non-blocking.
+- Updated next TODOs:
+  - Add stronger wrong-order visual feedback for using `JET` before `FOAM`.
+  - Add a proper `Hot` role after foam for oil/rust or make `Hot` a purchased upgrade rather than a required dirt solution.
+  - Add authored part masks and foam masks instead of broad rectangular approximations.

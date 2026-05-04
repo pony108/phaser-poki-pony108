@@ -12,9 +12,13 @@
  */
 
 import { UIButton } from '../components/UIButton'
+import { Analytics } from '../core/Analytics'
 import { config } from '../core/Config'
+import { SaveManager, SAVE_KEYS } from '../core/SaveManager'
 import { GAME_CONFIG } from '../data/gameConfig'
 import { BALANCING } from '../data/balancing'
+import { getLevel, levelIndexInWorld, levelsInWorld, worldForLevel, worldName } from '../data/levels'
+import { UpgradeSystem, UpgradeOffer } from '../systems/UpgradeSystem'
 import { formatScore } from '../utils/helpers'
 
 interface ResultData {
@@ -30,6 +34,11 @@ interface ResultData {
   bonusZonesTotal: number
   bonusZonesCompleted: number
   bonusScore: number
+  partsTotal: number
+  partsCompleted: number
+  partCashBonus: number
+  cashEarned: number
+  cashTotal: number
 }
 
 const CX = GAME_CONFIG.width / 2
@@ -50,11 +59,22 @@ export class ResultScene extends Phaser.Scene {
     isLastLevel: false,
     bonusZonesTotal: 0,
     bonusZonesCompleted: 0,
-    bonusScore: 0
+    bonusScore: 0,
+    partsTotal: 0,
+    partsCompleted: 0,
+    partCashBonus: 0,
+    cashEarned: 0,
+    cashTotal: 0
   }
 
   private enterKey!: Phaser.Input.Keyboard.Key
   private rKey!: Phaser.Input.Keyboard.Key
+  private rewardButton?: UIButton
+  private rewardStatusText!: Phaser.GameObjects.Text
+  private scoreValueText!: Phaser.GameObjects.Text
+  private highScoreText?: Phaser.GameObjects.Text
+  private cashText!: Phaser.GameObjects.Text
+  private upgradeStatusText!: Phaser.GameObjects.Text
 
   constructor() {
     super({ key: 'ResultScene' })
@@ -71,7 +91,12 @@ export class ResultScene extends Phaser.Scene {
       isLastLevel:   data?.isLastLevel   ?? false,
       bonusZonesTotal: data?.bonusZonesTotal ?? 0,
       bonusZonesCompleted: data?.bonusZonesCompleted ?? 0,
-      bonusScore: data?.bonusScore ?? 0
+      bonusScore: data?.bonusScore ?? 0,
+      partsTotal: data?.partsTotal ?? 0,
+      partsCompleted: data?.partsCompleted ?? 0,
+      partCashBonus: data?.partCashBonus ?? 0,
+      cashEarned: data?.cashEarned ?? 0,
+      cashTotal: data?.cashTotal ?? SaveManager.load<number>(SAVE_KEYS.cash, 0)
     }
   }
 
@@ -83,16 +108,38 @@ export class ResultScene extends Phaser.Scene {
     this.createHeader()
     this.createStars()
     this.createScoreCard()
+    this.createProgressPreview()
+    this.createUpgradeShop()
     this.createButtons()
+    this.createHiddenRewardFallback()
     this.setupKeyboard()
+    Analytics.track('result_screen_shown', {
+      levelId: this.resultData.levelId,
+      stars: this.resultData.stars,
+      score: this.resultData.score,
+      bonusZonesCompleted: this.resultData.bonusZonesCompleted,
+      cashEarned: this.resultData.cashEarned
+    })
+  }
 
-    // TODO: rewarded break hook
-    // this.time.delayedCall(500, () => {
-    //   const poki = this.plugins.get('poki') as PokiPlugin
-    //   poki.rewardedBreak().then((rewarded) => { if (rewarded) { ... } })
-    // })
+  private createHiddenRewardFallback(): void {
+    this.rewardStatusText = this.add.text(-1000, -1000, '', {
+      fontSize: '12px',
+      fontFamily: 'Arial, sans-serif',
+      color: '#ffffff',
+      resolution: 2
+    }).setVisible(false)
 
-    // TODO: analytics hook — result_screen_shown
+    this.rewardButton = new UIButton({
+      scene: this,
+      x: -1000,
+      y: -1000,
+      width: 44,
+      height: 44,
+      label: 'AD',
+      fontSize: 10,
+      onClick: () => void this.requestRewardedOffer()
+    }).setVisible(false)
   }
 
   // ─── Background ───────────────────────────────────────────────────────────
@@ -161,10 +208,16 @@ export class ResultScene extends Phaser.Scene {
       isNewHighScore,
       bonusZonesTotal,
       bonusZonesCompleted,
-      bonusScore
+      bonusScore,
+      partsTotal,
+      partsCompleted,
+      partCashBonus,
+      cashEarned,
+      cashTotal
     } = this.resultData
     const hasBonusSummary = bonusZonesTotal > 0
-    const cardHeight = hasBonusSummary ? 170 : 130
+    const hasPartSummary = partsTotal > 0
+    const cardHeight = hasBonusSummary ? 190 : 154
 
     // Card background
     const card = this.add.graphics()
@@ -182,7 +235,7 @@ export class ResultScene extends Phaser.Scene {
 
     // Animated score counter
     const scoreColor = isNewHighScore ? '#f1c40f' : '#ffffff'
-    const scoreDisplay = this.add.text(CX, CY - 85, formatScore(score), {
+    this.scoreValueText = this.add.text(CX, CY - 85, formatScore(score), {
       fontSize: '52px',
       fontFamily: 'Arial, sans-serif',
       color: scoreColor,
@@ -198,7 +251,7 @@ export class ResultScene extends Phaser.Scene {
         repeat: 40,
         callback: () => {
           displayed = Math.min(score, displayed + increment)
-          scoreDisplay.setText(formatScore(displayed))
+          this.scoreValueText.setText(formatScore(displayed))
           if (displayed >= score) counter.remove()
         }
       })
@@ -206,7 +259,7 @@ export class ResultScene extends Phaser.Scene {
 
     // High-score annotation
     if (isNewHighScore) {
-      const banner = this.add.text(CX, CY - 25, '🏆 NEW BEST!', {
+      this.highScoreText = this.add.text(CX, CY - 25, '🏆 NEW BEST!', {
         fontSize: '20px',
         fontFamily: 'Arial, sans-serif',
         color: '#f1c40f',
@@ -215,7 +268,7 @@ export class ResultScene extends Phaser.Scene {
       }).setOrigin(0.5)
 
       this.tweens.add({
-        targets: banner,
+        targets: this.highScoreText,
         scaleX: 1.1,
         scaleY: 1.1,
         duration: 500,
@@ -224,7 +277,7 @@ export class ResultScene extends Phaser.Scene {
         ease: 'Sine.easeInOut'
       })
     } else if (highScore > 0) {
-      this.add.text(CX, CY - 25, `Best: ${formatScore(highScore)}`, {
+      this.highScoreText = this.add.text(CX, CY - 25, `Best: ${formatScore(highScore)}`, {
         fontSize: '16px',
         fontFamily: 'Arial, sans-serif',
         color: '#aaaacc',
@@ -232,29 +285,170 @@ export class ResultScene extends Phaser.Scene {
       }).setOrigin(0.5)
     }
 
+    let detailY = CY - 4
+
+    if (hasPartSummary) {
+      this.add.text(CX, detailY, `Parts cleaned: ${partsCompleted}/${partsTotal}  +$${partCashBonus}`, {
+        fontSize: '14px',
+        fontFamily: 'Arial, sans-serif',
+        color: '#7dff9a',
+        fontStyle: 'bold',
+        resolution: 2
+      }).setOrigin(0.5)
+      detailY += 22
+    }
+
     if (hasBonusSummary) {
-      this.add.text(CX, CY + 4, `Bonus zones: ${bonusZonesCompleted}/${bonusZonesTotal}`, {
+      this.add.text(CX, detailY, `Bonus zones: ${bonusZonesCompleted}/${bonusZonesTotal}`, {
         fontSize: '15px',
         fontFamily: 'Arial, sans-serif',
         color: '#f1c40f',
         fontStyle: 'bold',
         resolution: 2
       }).setOrigin(0.5)
+      detailY += 20
 
-      this.add.text(CX, CY + 24, `Bonus score: +${formatScore(bonusScore)}`, {
+      this.add.text(CX, detailY, `Bonus score: +${formatScore(bonusScore)}`, {
         fontSize: '14px',
         fontFamily: 'Arial, sans-serif',
         color: '#aaaacc',
         resolution: 2
       }).setOrigin(0.5)
+      detailY += 24
     }
+
+    this.cashText = this.add.text(CX, detailY + 8, `Cash +$${cashEarned}  Total $${cashTotal}`, {
+      fontSize: '15px',
+      fontFamily: 'Arial, sans-serif',
+      color: '#7dff9a',
+      fontStyle: 'bold',
+      resolution: 2
+    }).setOrigin(0.5)
+  }
+
+  private createProgressPreview(): void {
+    const currentWorld = worldForLevel(this.resultData.levelId)
+    const worldLevels = levelsInWorld(currentWorld)
+    const completedLevels = SaveManager.load<Record<number, boolean>>(SAVE_KEYS.levelCompleted, {})
+    const completedInWorld = worldLevels.filter((id) => completedLevels[id]).length
+    const unlockedTools = SaveManager.load<string[]>(SAVE_KEYS.unlockedTools, ['fan'])
+    const nextLevelData = this.resultData.isLastLevel ? null : getLevel(this.resultData.levelId + 1)
+
+    const cardTop = CY + 44
+    const cardHeight = 118
+    const card = this.add.graphics()
+    card.fillStyle(0x10182c, 0.88)
+    card.fillRoundedRect(CX - 180, cardTop, 360, cardHeight, 18)
+    card.lineStyle(2, 0x4a90d9, 0.22)
+    card.strokeRoundedRect(CX - 180, cardTop, 360, cardHeight, 18)
+
+    const nextWorldLevel = Math.min(levelIndexInWorld(this.resultData.levelId), worldLevels.length)
+    const nextLevelText = nextLevelData
+      ? `Next: W${nextLevelData.world}-${levelIndexInWorld(nextLevelData.id)} ${worldName(nextLevelData.world)} / ${nextLevelData.dirtType.toUpperCase()}`
+      : 'Next: All worlds cleared'
+
+    this.add.text(CX - 156, cardTop + 16, `${worldName(currentWorld)}  W${currentWorld}-${nextWorldLevel}`, {
+      fontSize: '16px',
+      fontFamily: 'Arial, sans-serif',
+      color: '#ffffff',
+      fontStyle: 'bold',
+      resolution: 2
+    }).setOrigin(0, 0)
+
+    this.add.text(CX - 156, cardTop + 42, `World progress ${completedInWorld}/${worldLevels.length}  •  Tools ${unlockedTools.length}/${Object.keys(BALANCING.tools).length}`, {
+      fontSize: '13px',
+      fontFamily: 'Arial, sans-serif',
+      color: '#b7c7df',
+      resolution: 2
+    }).setOrigin(0, 0)
+
+    this.add.text(CX - 156, cardTop + 66, nextLevelText, {
+      fontSize: '13px',
+      fontFamily: 'Arial, sans-serif',
+      color: '#8fd3ff',
+      resolution: 2
+    }).setOrigin(0, 0)
+
   }
 
   // ─── Buttons ──────────────────────────────────────────────────────────────
 
+  private createUpgradeShop(): void {
+    const offers = UpgradeSystem.buildOffers(this.resultData.cashTotal, 2)
+    const y = CY + 188
+
+    this.add.text(CX, y - 42, 'GARAGE UPGRADES', {
+      fontSize: '14px',
+      fontFamily: 'Arial, sans-serif',
+      color: '#f5d06f',
+      fontStyle: 'bold',
+      resolution: 2
+    }).setOrigin(0.5)
+
+    this.upgradeStatusText = this.add.text(CX, y + 40, '', {
+      fontSize: '12px',
+      fontFamily: 'Arial, sans-serif',
+      color: '#8fd3ff',
+      resolution: 2
+    }).setOrigin(0.5)
+
+    if (offers.length === 0) {
+      this.add.text(CX, y - 4, 'All upgrades owned', {
+        fontSize: '15px',
+        fontFamily: 'Arial, sans-serif',
+        color: '#aaaacc',
+        resolution: 2
+      }).setOrigin(0.5)
+      return
+    }
+
+    const startX = offers.length === 1 ? CX : CX - 92
+    offers.forEach((offer, index) => {
+      const x = startX + index * 184
+      this.createUpgradeButton(offer, x, y)
+    })
+  }
+
+  private createUpgradeButton(offer: UpgradeOffer, x: number, y: number): void {
+    const button = new UIButton({
+      scene: this,
+      x,
+      y,
+      width: 172,
+      height: 46,
+      label: `${offer.name} L${offer.level + 1}  $${offer.price}`,
+      fontSize: 13,
+      color: 0x315c3d,
+      hoverColor: 0x3b704a,
+      pressColor: 0x274a31,
+      disabledColor: 0x3a3a46,
+      onClick: () => this.buyUpgrade(offer.key, button)
+    })
+    button.setEnabled(offer.canBuy)
+  }
+
+  private buyUpgrade(key: UpgradeOffer['key'], button: UIButton): void {
+    const result = UpgradeSystem.buy(key)
+    if (!result.success) {
+      this.upgradeStatusText.setText('Need more cash')
+      return
+    }
+
+    this.resultData.cashTotal = result.cash
+    this.cashText.setText(`Cash +$${this.resultData.cashEarned}  Total $${this.resultData.cashTotal}`)
+    this.upgradeStatusText.setText(`${BALANCING.upgrades[key].name} upgraded to L${result.level}`)
+    button.setText('BOUGHT').setEnabled(false)
+    Analytics.track('upgrade_bought', {
+      levelId: this.resultData.levelId,
+      upgrade: key,
+      upgradeLevel: result.level,
+      cashRemaining: result.cash
+    })
+  }
+
   private createButtons(): void {
     const { isLastLevel, levelId, bonusZonesTotal } = this.resultData
-    let yOffset = bonusZonesTotal > 0 ? CY + 72 : CY + 30
+    let yOffset = bonusZonesTotal > 0 ? CY + 246 : CY + 232
 
     // NEXT LEVEL — only if there is a next level
     if (!isLastLevel) {
@@ -263,7 +457,7 @@ export class ResultScene extends Phaser.Scene {
         x: CX,
         y: yOffset,
         width: 240,
-        height: 64,
+        height: 56,
         label: 'NEXT LEVEL',
         fontSize: 24,
         color: 0x27ae60,
@@ -271,7 +465,7 @@ export class ResultScene extends Phaser.Scene {
         pressColor: 0x1e8449,
         onClick: () => this.goToLevel(levelId + 1)
       })
-      yOffset += 80
+      yOffset += 66
     }
 
     // PLAY AGAIN
@@ -280,7 +474,7 @@ export class ResultScene extends Phaser.Scene {
       x: CX,
       y: yOffset,
       width: 240,
-      height: 64,
+      height: 56,
       label: 'PLAY AGAIN',
       fontSize: 24,
       color: 0x4a90d9,
@@ -288,7 +482,7 @@ export class ResultScene extends Phaser.Scene {
       pressColor: 0x357abd,
       onClick: () => this.replayLevel(levelId)
     })
-    yOffset += 75
+    yOffset += 62
 
     // MENU
     new UIButton({
@@ -296,7 +490,7 @@ export class ResultScene extends Phaser.Scene {
       x: CX,
       y: yOffset,
       width: 200,
-      height: 52,
+      height: 46,
       label: 'MENU',
       fontSize: 20,
       color: 0x2c3e50,
@@ -325,7 +519,10 @@ export class ResultScene extends Phaser.Scene {
   // ─── Navigation ───────────────────────────────────────────────────────────
 
   private goToLevel(levelId: number): void {
-    // TODO: analytics hook — next_level
+    Analytics.track('next_level_selected', {
+      fromLevelId: this.resultData.levelId,
+      toLevelId: levelId
+    })
     this.cameras.main.fadeOut(BALANCING.sceneFadeDuration, 0, 0, 0)
     this.cameras.main.once(
       Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE,
@@ -334,7 +531,9 @@ export class ResultScene extends Phaser.Scene {
   }
 
   private replayLevel(levelId: number): void {
-    // TODO: analytics hook — game_restarted
+    Analytics.track('replay_selected', {
+      levelId
+    })
     this.cameras.main.fadeOut(BALANCING.sceneFadeDuration, 0, 0, 0)
     this.cameras.main.once(
       Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE,
@@ -343,11 +542,81 @@ export class ResultScene extends Phaser.Scene {
   }
 
   private goToMenu(): void {
+    Analytics.track('menu_selected_from_result', {
+      levelId: this.resultData.levelId
+    })
     this.cameras.main.fadeOut(BALANCING.sceneFadeDuration, 0, 0, 0)
     this.cameras.main.once(
       Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE,
       () => this.scene.start('MenuScene')
     )
+  }
+
+  private getRewardOffer(): { type: 'tool'; toolKey: string } | { type: 'score' } {
+    const unlockedTools = SaveManager.load<string[]>(SAVE_KEYS.unlockedTools, ['fan'])
+    const lockedTool = Object.entries(BALANCING.toolUnlockAtLevel)
+      .sort((a, b) => a[1] - b[1])
+      .find(([toolKey]) => !unlockedTools.includes(toolKey))
+
+    if (lockedTool) {
+      return { type: 'tool', toolKey: lockedTool[0] }
+    }
+
+    return { type: 'score' }
+  }
+
+  private async requestRewardedOffer(): Promise<void> {
+    if (!this.rewardButton || this.rewardButton.isDisabled) return
+
+    const rewardOffer = this.getRewardOffer()
+    this.rewardButton.setEnabled(false)
+    this.rewardStatusText.setText('Loading reward...')
+
+    let rewarded = false
+    try {
+      const poki = this.plugins.get('poki') as import('@poki/phaser-3').PokiPlugin | undefined
+      if (poki?.rewardedBreak) {
+        rewarded = await poki.rewardedBreak()
+      }
+    } catch {
+      rewarded = false
+    }
+
+    if (!rewarded) {
+      this.rewardButton.setEnabled(true)
+      this.rewardStatusText.setText('Reward skipped')
+      Analytics.track('reward_offer_declined', {
+        levelId: this.resultData.levelId,
+        rewardType: rewardOffer.type
+      })
+      return
+    }
+
+    if (rewardOffer.type === 'tool') {
+      const unlockedTools = SaveManager.load<string[]>(SAVE_KEYS.unlockedTools, ['fan'])
+      if (!unlockedTools.includes(rewardOffer.toolKey)) {
+        unlockedTools.push(rewardOffer.toolKey)
+        SaveManager.save(SAVE_KEYS.unlockedTools, unlockedTools)
+      }
+      this.rewardStatusText.setText(`${rewardOffer.toolKey.toUpperCase()} unlocked for the next run`)
+    } else {
+      this.resultData.score += BALANCING.rewardedScoreBonus
+      this.scoreValueText.setText(formatScore(this.resultData.score))
+      if (this.resultData.score > this.resultData.highScore) {
+        this.resultData.highScore = this.resultData.score
+        this.resultData.isNewHighScore = true
+        SaveManager.save(SAVE_KEYS.highScore, this.resultData.highScore)
+        this.highScoreText?.setText('🏆 NEW BEST!')
+      }
+      this.rewardStatusText.setText(`+${formatScore(BALANCING.rewardedScoreBonus)} score applied`)
+    }
+
+    this.rewardButton.setText('REWARD CLAIMED')
+    Analytics.track('reward_offer_claimed', {
+      levelId: this.resultData.levelId,
+      rewardType: rewardOffer.type,
+      rewardValue: rewardOffer.type === 'tool' ? rewardOffer.toolKey : BALANCING.rewardedScoreBonus
+    })
   }
 
   // ─── Cleanup ──────────────────────────────────────────────────────────────
@@ -361,6 +630,11 @@ export class ResultScene extends Phaser.Scene {
     const availableActions = this.resultData.isLastLevel
       ? ['play_again', 'menu']
       : ['next_level', 'play_again', 'menu']
+    const rewardOffer = this.getRewardOffer()
+    const currentWorld = worldForLevel(this.resultData.levelId)
+    const worldLevels = levelsInWorld(currentWorld)
+    const completedLevels = SaveManager.load<Record<number, boolean>>(SAVE_KEYS.levelCompleted, {})
+    const unlockedTools = SaveManager.load<string[]>(SAVE_KEYS.unlockedTools, ['fan'])
 
     return {
       mode: 'result',
@@ -376,6 +650,19 @@ export class ResultScene extends Phaser.Scene {
       bonusZonesTotal: this.resultData.bonusZonesTotal,
       bonusZonesCompleted: this.resultData.bonusZonesCompleted,
       bonusScore: this.resultData.bonusScore,
+      partsTotal: this.resultData.partsTotal,
+      partsCompleted: this.resultData.partsCompleted,
+      partCashBonus: this.resultData.partCashBonus,
+      cashEarned: this.resultData.cashEarned,
+      cashTotal: this.resultData.cashTotal,
+      upgradeOffers: UpgradeSystem.buildOffers(this.resultData.cashTotal, 2).map((offer) => `${offer.key}:${offer.level}->${offer.level + 1}:$${offer.price}:${offer.canBuy}`).join(','),
+      world: currentWorld,
+      worldName: worldName(currentWorld),
+      levelInWorld: levelIndexInWorld(this.resultData.levelId),
+      worldProgress: `${worldLevels.filter((id) => completedLevels[id]).length}/${worldLevels.length}`,
+      unlockedTools: unlockedTools.join(','),
+      rewardOfferType: rewardOffer.type,
+      rewardOfferValue: rewardOffer.type === 'tool' ? rewardOffer.toolKey : BALANCING.rewardedScoreBonus,
       availableActions
     }
   }

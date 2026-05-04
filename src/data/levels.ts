@@ -40,6 +40,13 @@ export interface LevelConfig {
   bonusZones?: [number, number, number, number][]
 }
 
+export const WORLD_NAMES = {
+  1: 'Farm',
+  2: 'Ranch',
+  3: 'Garage',
+  4: 'Junkyard'
+} as const
+
 // ─── World 1 — Farm (Dust, Fan nozzle) ────────────────────────────────────────
 
 const WORLD_1: LevelConfig[] = [
@@ -129,11 +136,21 @@ export function worldForLevel(levelId: number): number {
   return getLevel(levelId).world
 }
 
+export function worldName(world: number): string {
+  return WORLD_NAMES[world as keyof typeof WORLD_NAMES] ?? `World ${world}`
+}
+
 /**
  * Returns all level ids belonging to a world (1-based world number).
  */
 export function levelsInWorld(world: number): number[] {
   return ALL_LEVELS.filter(l => l.world === world).map(l => l.id)
+}
+
+export function levelIndexInWorld(levelId: number): number {
+  const ids = levelsInWorld(worldForLevel(levelId))
+  const idx = ids.indexOf(levelId)
+  return idx === -1 ? 1 : idx + 1
 }
 
 /**

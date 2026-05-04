@@ -120,51 +120,17 @@ export class PreloadScene extends Phaser.Scene {
 
   private loadAssets(): void {
     this.load.image('vehicle_0', 'assets/vehicles/vehicle_0.png')
+    this.load.image('vehicle_1', 'assets/vehicles/vehicle_1.png')
+    this.load.image('vehicle_2', 'assets/vehicles/vehicle_2.png')
+    this.load.image('vehicle_3', 'assets/vehicles/vehicle_3.png')
+    this.load.image('vehicle_4', 'assets/vehicles/vehicle_4.png')
+    this.load.image('vehicle_9', 'assets/vehicles/vehicle_9.png')
+    this.load.audio('spray_loop', 'assets/audio/spray_loop.wav')
+    this.load.audio('sfx_clear', 'assets/audio/sfx_clear.wav')
+    this.load.audio('sfx_switch', 'assets/audio/sfx_switch.wav')
+    this.load.audio('sfx_score', 'assets/audio/sfx_score.wav')
     // ── Placeholder textures (generated at runtime — no files needed) ────────
 
-    const w = 180
-    const h = 340 // Base vehicle size
-
-    // Vehicle 1: SUV (Red)
-    const v1 = this.make.graphics({ x: 0, y: 0 }, false)
-    v1.fillStyle(0xe74c3c)
-    v1.fillRoundedRect(0, 0, w + 20, h + 40, 15)
-    v1.fillStyle(0x222222)
-    v1.fillRoundedRect(20, h * 0.2, w - 20, 60, 15)
-    v1.fillRoundedRect(20, h * 0.7, w - 20, 50, 10)
-    v1.generateTexture('vehicle_1', w + 20, h + 40)
-    v1.destroy()
-
-    // Vehicle 2: Sports (Yellow)
-    const v2 = this.make.graphics({ x: 0, y: 0 }, false)
-    v2.fillStyle(0xf1c40f)
-    v2.fillRoundedRect(10, 0, w - 20, h, 30)
-    v2.fillStyle(0x222222)
-    v2.fillRoundedRect(25, h * 0.25, w - 50, 45, 15)
-    v2.generateTexture('vehicle_2', w, h)
-    v2.destroy()
-
-    // Vehicle 3: Truck (Green)
-    const v3 = this.make.graphics({ x: 0, y: 0 }, false)
-    v3.fillStyle(0x2ecc71)
-    v3.fillRect(0, 0, w + 30, h + 60)
-    v3.fillStyle(0x222222)
-    v3.fillRoundedRect(30, h * 0.15, w - 30, 40, 5) // Cab
-    v3.fillStyle(0x555555) // Bed
-    v3.fillRect(10, h * 0.4, w + 10, h * 0.5)
-    v3.generateTexture('vehicle_3', w + 30, h + 60)
-    v3.destroy()
-
-    // Vehicle 4: Vintage (Purple)
-    const v4 = this.make.graphics({ x: 0, y: 0 }, false)
-    v4.fillStyle(0x9b59b6)
-    v4.fillRoundedRect(15, 0, w - 30, h, 40)
-    v4.fillCircle(15, 40, 25)
-    v4.fillCircle(w - 15, 40, 25)
-    v4.fillStyle(0x222222)
-    v4.fillRoundedRect(30, h * 0.3, w - 60, 40, 5)
-    v4.generateTexture('vehicle_4', w, h)
-    v4.destroy()
 
     // ── Tool icons — each nozzle has a distinct silhouette ───────────────────
 
@@ -176,6 +142,20 @@ export class PreloadScene extends Phaser.Scene {
     fanGfx.fillRect(20, 40, 8, 8)                 // handle stub
     fanGfx.generateTexture('tool_fan', 48, 48)
     fanGfx.destroy()
+
+    // FOAM - soft white blob with bubbles (pre-treatment)
+    const foamGfx = this.make.graphics({ x: 0, y: 0 }, false)
+    foamGfx.fillStyle(0xeaf8ff, 0.95)
+    foamGfx.fillCircle(18, 26, 13)
+    foamGfx.fillCircle(30, 25, 12)
+    foamGfx.fillCircle(24, 16, 10)
+    foamGfx.fillCircle(24, 34, 11)
+    foamGfx.fillStyle(0x7ed6ff, 0.55)
+    foamGfx.fillCircle(15, 16, 4)
+    foamGfx.fillCircle(33, 35, 4)
+    foamGfx.fillCircle(24, 25, 3)
+    foamGfx.generateTexture('tool_foam', 48, 48)
+    foamGfx.destroy()
 
     // JET — narrow teal cone (high-pressure jet)
     const jetGfx = this.make.graphics({ x: 0, y: 0 }, false)
@@ -249,20 +229,6 @@ export class PreloadScene extends Phaser.Scene {
     v8.destroy()
 
     // ── Vehicle 9 — Engine Block (dark metal, novelty object) ─────────────────
-    const v9 = this.make.graphics({ x: 0, y: 0 }, false)
-    v9.fillStyle(0x424242)
-    v9.fillRect(10, 10, 160, 280)               // block body
-    v9.fillStyle(0x616161)
-    for (let i = 0; i < 3; i++) {              // cylinder tops
-      v9.fillCircle(40 + i * 40, 40, 18)
-    }
-    v9.fillStyle(0x333333)
-    v9.fillRoundedRect(15, 90, 150, 60, 5)     // oil pan
-    v9.fillStyle(0x888888)
-    v9.fillRect(60, 200, 60, 80)               // exhaust block
-    v9.generateTexture('vehicle_9', 180, 300)
-    v9.destroy()
-
     // ── Particle — small white dot ─────────────────────────────────────────────
     const particleGfx = this.make.graphics({ x: 0, y: 0 }, false)
     particleGfx.fillStyle(0xffffff, 0.8)

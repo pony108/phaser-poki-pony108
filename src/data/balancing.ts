@@ -11,30 +11,78 @@ export interface ToolConfig {
   name: string
   /** Dirt types this nozzle is effective against. Wrong type = 20% speed. */
   primaryDirt: DirtType[]
+  /** Prep tools mark dirty cells but do not directly remove dirt layers. */
+  prepOnly?: boolean
 }
 
 export const BALANCING = {
   // ─── Base Score ────────────────────────────────────────────────────────────
   baseScore: 1000,
+  completionPercent: 98,
+  rewardedScoreBonus: 400,
+  clearSfxCooldownMs: 90,
+  unpreppedStrengthFactor: 0.08,
+
+  cash: {
+    basePay: 120,
+    starBonus: 45,
+    efficiencyBonus: 60,
+    bonusZoneCash: 50,
+    partCompleteCash: 20
+  },
+
+  upgrades: {
+    pressure: {
+      name: 'Pressure',
+      description: 'More cleaning power for every tool.',
+      basePrice: 250,
+      priceStep: 180,
+      maxLevel: 5,
+      strengthBonusPerLevel: 0.12
+    },
+    sprayWidth: {
+      name: 'Spray Width',
+      description: 'Wider fan coverage.',
+      basePrice: 350,
+      priceStep: 220,
+      maxLevel: 4,
+      fanRadiusBonusPerLevel: 5
+    },
+    soapQuality: {
+      name: 'Soap Quality',
+      description: 'Hot nozzle cuts mud faster.',
+      basePrice: 450,
+      priceStep: 260,
+      maxLevel: 4,
+      hotMudStrengthBonusPerLevel: 0.16
+    }
+  },
 
   // ─── Nozzles ───────────────────────────────────────────────────────────────
   // GDD: Fan (wide arc), Jet (narrow stream), Hot (medium cone + steam)
   tools: {
     fan: {
-      radius: 80,
-      strength: 1.0,
+      radius: 72,
+      strength: 0.42,
       name: 'FAN',
       primaryDirt: ['dust'] as DirtType[]
     },
+    foam: {
+      radius: 62,
+      strength: 1,
+      name: 'FOAM',
+      primaryDirt: ['mud', 'oil', 'rust'] as DirtType[],
+      prepOnly: true
+    },
     jet: {
       radius: 35,
-      strength: 1.5,
+      strength: 1.35,
       name: 'JET',
       primaryDirt: ['dust', 'mud', 'oil', 'rust'] as DirtType[]
     },
     hot: {
-      radius: 55,
-      strength: 1.2,
+      radius: 52,
+      strength: 0.95,
       name: 'HOT',
       primaryDirt: ['dust', 'mud'] as DirtType[]
     }
@@ -51,7 +99,8 @@ export const BALANCING = {
   /** Level ID at which each tool first becomes available. */
   toolUnlockAtLevel: {
     fan: 1,   // available from the start
-    jet: 7,   // World 2 (Ranch) — level 7
+    foam: 6,  // World 2 introduces pre-treatment
+    jet: 6,   // World 2 needs a pressure follow-up after foam
     hot: 12   // World 3 (Garage) — level 12
   } as Record<string, number>,
 

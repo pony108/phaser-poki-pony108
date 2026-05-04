@@ -10,11 +10,12 @@
 
 import { UIButton } from '../components/UIButton'
 import { AudioManager } from '../core/AudioManager'
+import { Analytics } from '../core/Analytics'
 import { SaveManager, SAVE_KEYS } from '../core/SaveManager'
 import { config } from '../core/Config'
 import { GAME_CONFIG } from '../data/gameConfig'
 import { BALANCING } from '../data/balancing'
-import { TOTAL_LEVELS } from '../data/levels'
+import { TOTAL_LEVELS, levelIndexInWorld, levelsInWorld, worldForLevel, worldName } from '../data/levels'
 
 const CX = GAME_CONFIG.width / 2
 const CY = GAME_CONFIG.height / 2
@@ -38,8 +39,9 @@ export class MenuScene extends Phaser.Scene {
     this.createButtons()
     this.createFooter()
     this.setupKeyboard()
-
-    // TODO: analytics hook — menu_viewed
+    Analytics.track('menu_viewed', {
+      currentLevel: SaveManager.load<number>(SAVE_KEYS.currentLevel, 1)
+    })
   }
 
   // ─── UI Construction ───────────────────────────────────────────────────────
@@ -163,6 +165,13 @@ export class MenuScene extends Phaser.Scene {
   }
 
   private createFooter(): void {
+    const currentLevel = SaveManager.load<number>(SAVE_KEYS.currentLevel, 1)
+    const currentWorld = worldForLevel(currentLevel)
+    const unlockedTools = SaveManager.load<string[]>(SAVE_KEYS.unlockedTools, ['fan'])
+    const completedLevels = SaveManager.load<Record<number, boolean>>(SAVE_KEYS.levelCompleted, {})
+    const worldLevels = levelsInWorld(currentWorld)
+    const completedInWorld = worldLevels.filter((levelId) => completedLevels[levelId]).length
+
     // High score display
     const hs = SaveManager.load<number>(SAVE_KEYS.highScore, 0)
     if (hs > 0) {
@@ -175,6 +184,15 @@ export class MenuScene extends Phaser.Scene {
         })
         .setOrigin(0.5)
     }
+
+    this.add
+      .text(CX, CY + 198, `${worldName(currentWorld)}  W${currentWorld}-${levelIndexInWorld(currentLevel)}  •  ${completedInWorld}/${worldLevels.length} cleared  •  ${unlockedTools.length}/${Object.keys(BALANCING.tools).length} tools`, {
+        fontSize: '14px',
+        fontFamily: 'Arial, sans-serif',
+        color: '#9eb8d8',
+        resolution: 2
+      })
+      .setOrigin(0.5)
 
     // Version stamp
     this.add
@@ -203,7 +221,10 @@ export class MenuScene extends Phaser.Scene {
   // ─── Actions ──────────────────────────────────────────────────────────────
 
   private startGame(levelId: number = 1): void {
-    // TODO: analytics hook — game_started
+    Analytics.track('game_started', {
+      levelId,
+      world: worldForLevel(levelId)
+    })
     this.cameras.main.fadeOut(BALANCING.sceneFadeDuration, 0, 0, 0)
     this.cameras.main.once(
       Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE,
@@ -234,7 +255,11 @@ export class MenuScene extends Phaser.Scene {
       coordinateSystem: 'Origin is top-left. X increases right, Y increases down.',
       currentLevel: savedLevel,
       highScore,
-      muted: AudioManager.muted
+      muted: AudioManager.muted,
+      world: worldForLevel(savedLevel),
+      worldName: worldName(worldForLevel(savedLevel)),
+      levelInWorld: levelIndexInWorld(savedLevel),
+      unlockedTools: SaveManager.load<string[]>(SAVE_KEYS.unlockedTools, ['fan']).join(',')
     }
   }
 }
