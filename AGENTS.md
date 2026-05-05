@@ -7,33 +7,29 @@
 
 ## 1. Project Overview
 
-**What it is:** A Phaser 3 + TypeScript + Vite browser game prototype named `Sparkle Wash` in code. The implemented game is a portrait cleaning game: the player wipes procedural dirt from a generated vehicle using selectable tools, earns a score and star rating, and advances through saved level progress.
+**What it is:** A Phaser 3 + TypeScript + Vite browser game named `Sparkle Wash`. The player wipes procedural and real-art dirt from vehicles using selectable tools, earns cash and a star rating, buys upgrades, and advances through 20 levels across 4 themed worlds.
 
-**Target platform:** Browser with Poki SDK integration via `@poki/phaser-3`. The game is portrait-oriented at `480x854`.
-
-**Current implementation vs README:** README.md describes the Pony108 GDD and future worlds/nozzles. The current code implements a smaller Sparkle Wash slice: five World 1 dust levels, procedural placeholder vehicles, three cleaning tools, saved progress, and result scoring. Do not assume README roadmap items are implemented unless present in `src/`.
+**Target platform:** Browser with Poki SDK integration via `@poki/phaser-3`. Portrait-oriented at `480x854`.
 
 **Entry point:** `index.html` -> `src/main.ts`
 
 **Package scripts:**
 
-| Command | package.json script | Notes |
-|---|---|---|
-| `npm run dev` | `vite` | Vite dev server. `vite.config.ts` sets `server.port = 3000` and `open = true`. |
-| `npm run build` | `tsc && vite build` | TypeScript check, then Vite build to `dist/`. |
-| `npm run preview` | `vite preview` | Preview built output. |
-| `npm run typecheck` | `tsc --noEmit` | TypeScript-only check. |
+| Command | Notes |
+|---|---|
+| `npm run dev` | Vite dev server on port 3000, auto-opens browser |
+| `npm run build` | `tsc && vite build` → output in `dist/` |
+| `npm run preview` | Preview built output |
+| `npm run typecheck` | TypeScript-only check, no emit |
 
-**Dependency versions from package.json and package-lock.json:**
+**Dependency versions:**
 
-| Package | package.json spec | Lockfile resolved |
-|---|---:|---:|
-| `phaser` | `^3.80.1` | `3.90.0` |
-| `@poki/phaser-3` | `^0.0.5` | `0.0.5` |
-| `typescript` | `^5.4.5` | `5.9.3` |
-| `vite` | `^5.2.11` | `5.4.21` |
-
-**Install state caveat:** The lockfile records resolved versions. If `node_modules/` is absent, run `npm install` before expecting `npm run typecheck`, `npm run build`, or `npm run dev` to work.
+| Package | Resolved |
+|---|---|
+| `phaser` | `3.90.0` |
+| `@poki/phaser-3` | `0.0.5` |
+| `typescript` | `5.9.3` |
+| `vite` | `5.4.21` |
 
 ---
 
@@ -43,132 +39,147 @@
 
 ```text
 index.html
-  HTML shell; mobile viewport meta; CSS disables page scrolling/touch gestures; mounts #game-container; loads /src/main.ts.
+  HTML shell; mobile viewport meta; CSS disables page scrolling/touch; mounts #game-container; loads /src/main.ts.
 
 vite.config.ts
-  Vite config; base='./'; build outDir='dist'; assetsDir='assets'; manual phaser chunk; dev server host=true, port=3000, open=true.
+  base='./'; build outDir='dist'; assetsDir='assets'; manual phaser chunk; dev server host=true, port=3000, open=true.
 
 tsconfig.json
-  Strict TypeScript config; target ES2020; module ESNext; moduleResolution=bundler; noEmit=true; noUnusedLocals/Parameters=true; include=['src'].
+  Strict TypeScript; target ES2020; module ESNext; moduleResolution=bundler; noUnusedLocals/Parameters=true; include=['src'].
 
-package.json
-  Scripts and devDependencies only.
+public/assets/vehicles/
+  vehicle_0.png .. vehicle_4.png, vehicle_9.png — real PNG art loaded by PreloadScene.
+  vehicle_5..8 are still generated procedurally at runtime.
 
-README.md
-  Game design document for Pony108. Use as intent only, not implementation truth.
-
-.claude/settings.local.json
-  Local Claude permissions config. Not part of runtime.
+public/assets/audio/
+  spray_loop.wav, sfx_clear.wav, sfx_switch.wav, sfx_score.wav
 ```
 
 ### 2.2 Source File Index
 
 ```text
 src/main.ts
-  Imports Phaser, PokiPlugin, BootScene, PreloadScene, MenuScene, GameScene, ResultScene, ScaleManager, GAME_CONFIG.
-  Builds Phaser.Types.Core.GameConfig.
-  Registers global PokiPlugin with key 'poki'.
-  Scene order is [BootScene, PreloadScene, MenuScene, GameScene, ResultScene].
-  Side effect: new Phaser.Game(config).
+  Builds Phaser.GameConfig: CANVAS renderer when navigator.webdriver (dev automation), AUTO otherwise.
+  Registers PokiPlugin (loadingSceneKey='PreloadScene', gameplaySceneKey='GameScene', autoCommercialBreak=true).
+  Scene order: [BootScene, PreloadScene, MenuScene, GameScene, ResultScene].
+  Calls registerSparkleWashTestBridge(game) — dev-only test hook, no-ops in production.
 
 src/scenes/BootScene.ts
-  Class: BootScene, key 'BootScene'.
-  init(): ScaleManager.init(); AudioManager.init(this); optional dev logs.
-  create(): background color, fade in, delayed transition to 'PreloadScene' after BALANCING.bootDelay.
+  key: 'BootScene'. Calls ScaleManager.init() and AudioManager.init(this). Fades in, then starts PreloadScene.
 
 src/scenes/PreloadScene.ts
-  Class: PreloadScene, key 'PreloadScene'.
-  preload(): loading UI, loader progress events, loadAssets().
-  create(): fade out, then start 'MenuScene'.
-  loadAssets(): generates procedural textures: vehicle_0..vehicle_4, tool_widesponge, tool_foambrush, tool_focusspray, particle, sparkle, bubble.
-  No real image/audio files are loaded by default.
+  key: 'PreloadScene'.
+  preload(): loads real PNGs (vehicle_0..4, vehicle_9), audio (spray_loop, sfx_clear, sfx_switch, sfx_score),
+             then generates procedural textures at runtime: vehicle_5..8, tool_fan, tool_foam, tool_jet, tool_hot,
+             particle, sparkle, bubble.
+  create(): fades out directly to 'GameScene' — MenuScene is NOT in the normal boot path.
 
 src/scenes/MenuScene.ts
-  Class: MenuScene, key 'MenuScene'.
-  Title/menu scene with gradient background, title, tagline 'Grab a sponge!', Play/Continue/New Game buttons, mute toggle, optional high score, version stamp.
-  Reads SAVE_KEYS.currentLevel to show Continue and progress.
-  Keyboard: Enter/Space starts saved level; Escape toggles mute.
-  Starts GameScene with data { levelId }.
+  key: 'MenuScene'. Reachable only from ResultScene or directly. Shows title, progress summary, world/tool info.
+  Starts GameScene with { levelId }.
 
 src/scenes/GameScene.ts
-  Class: GameScene, key 'GameScene'.
-  Main implemented gameplay.
-  init(data): resolves level from data.levelId or SAVE_KEYS.currentLevel via getLevel().
-  create(): sets background/fade; resets state; creates world, vehicle/dirt RenderTexture, particles, HUD, tools UI, pointer input, reusable brush Graphics.
-  update(): increments timer text while not finished.
-  Gameplay: pointer/touch wipes dirt from a RenderTexture; boolean grid tracks cleaned cells; completion triggers at >= 98%.
-  Completion: clears dirt, emits sparkles, computes score/stars, persists highScore/levelStars/currentLevel/completedCleans, then starts ResultScene.
-  There are no enemies, coins, lives, pause overlay, keyboard movement, or fail state in the current GameScene.
+  key: 'GameScene'. Main gameplay scene.
+  Phase lifecycle: 'arrival' -> 'cleaning' -> 'complete'.
+  Arrival: vehicle and dirt slide in from below, customer bubble appears, click/tap skips to cleaning.
+  Cleaning: pointer wipes dirt from dirtRT; foam overlay tracks prepGrid on foamRT.
+  Systems used: EconomySystem, UpgradeSystem, getVehicleParts, bonus zones, coach card, hand pointer, streak.
+  Completion: triggers at >= BALANCING.completionPercent (98%) of cells cleaned; transitions to ResultScene.
 
 src/scenes/ResultScene.ts
-  Class: ResultScene, key 'ResultScene'.
-  Displays 'ALL CLEAN!', level subtitle, star rating, animated score, high-score annotation, NEXT LEVEL/PLAY AGAIN/MENU buttons.
-  Keyboard: Enter goes to next level when available, otherwise replay; R replays current level.
-  Contains TODO placeholders for rewarded break and analytics.
+  key: 'ResultScene'. Shows score, stars, cash earned, part summary, upgrade shop, rewarded-break button.
+  Uses UpgradeSystem.buildOffers() for the shop. Uses PokiPlugin.rewardedBreak() for optional ad reward.
+  Buttons: NEXT LEVEL / PLAY AGAIN / MENU.
+
+src/core/Analytics.ts
+  Static Analytics class. track(event, payload) pushes to window.__sparkleWashAnalytics[] and dispatches
+  'sparklewash:analytics' CustomEvent. No remote calls — Playwright / external listeners consume the queue.
 
 src/core/AudioManager.ts
-  Static-only singleton for mute, SFX, music, persisted volumes, and browser audio unlock listeners.
-  Public API: init(scene), playSfx(scene,key,volume?), playMusic(scene,key,volume?), stopMusic(), toggleMute(), setMuted(bool), setSfxVolume(number), setMusicVolume(number), getters muted/sfxVolume/musicVolume.
-  Uses SaveManager keys muted/sfxVolume/musicVolume.
-  playSfx/playMusic no-op if audio key is not loaded.
+  Static singleton. Manages mute, SFX, music, persisted volumes, browser audio unlock.
+  API: init(scene), playSfx(scene,key,volume?), playMusic(scene,key,volume?), stopMusic(),
+       toggleMute(), setMuted(bool), setSfxVolume(number), setMusicVolume(number).
+  playSfx/playMusic are safe no-ops when keys are not loaded.
 
 src/core/Config.ts
-  Exports RuntimeConfig interface and config singleton.
-  Merges GAME_CONFIG, BALANCING, detectIsDev(), detectIsMobile().
-  detectIsDev(): localhost or 127.0.0.1.
-  detectIsMobile(): navigator.maxTouchPoints > 0.
+  Exports RuntimeConfig and config singleton merging GAME_CONFIG + BALANCING + isDev + isMobile.
+  isDev: localhost or 127.0.0.1. isMobile: navigator.maxTouchPoints > 0.
 
 src/core/SaveManager.ts
-  Static localStorage wrapper with PREFIX='pg_'.
-  Public API: save<T>(), load<T>(), remove(), clearAll(), isAvailable().
-  SAVE_KEYS: highScore, muted, sfxVolume, musicVolume, completedCleans, currentLevel, levelStars.
+  Static localStorage wrapper with PREFIX='pg_'. API: save<T>, load<T>, remove, clearAll, isAvailable.
+  SAVE_KEYS (see §5.3).
 
 src/core/ScaleManager.ts
-  Static responsive scaling/orientation helper.
-  getPhaserScaleConfig(): Phaser Scale.FIT config with parent='game-container', width/height from GAME_CONFIG, autoCenter CENTER_BOTH, expandParent=true.
-  init(): wires orientationchange and resize listeners.
-  Creates/removes #orientation-warning DOM element when landscape and viewport width < 900.
-
-src/data/gameConfig.ts
-  Exports GAME_CONFIG and GameConfig type.
-  Current values: title='Sparkle Wash', width=480, height=854, backgroundColor='#2b3036', debug=false, version='1.0.0', physics='arcade', targetFps=60.
+  Static responsive scaling helper. getPhaserScaleConfig(): Scale.FIT at 480x854.
+  Creates/removes #orientation-warning DOM overlay when landscape and width < 900.
 
 src/data/balancing.ts
-  Exports BALANCING and Balancing type.
-  Current tunables: baseScore=1000; tools { widesponge, foambrush, focusspray }; startingLives=1 unused; sceneFadeDuration=300; bootDelay=100.
+  All tunable gameplay numbers: baseScore, completionPercent, rewardedScoreBonus, unpreppedStrengthFactor,
+  cash (basePay/starBonus/efficiencyBonus/bonusZoneCash/partCompleteCash),
+  upgrades (pressure/sprayWidth/soapQuality — each with basePrice/priceStep/maxLevel/bonusPerLevel),
+  tools (fan/foam/jet/hot — each with radius/strength/name/primaryDirt; foam has prepOnly=true),
+  wrongToolStrengthFactor, wrongToolWarningCooldown,
+  toolUnlockAtLevel (fan=1, foam=6, jet=6, hot=12),
+  worldLevelRanges ([[1,5],[6,10],[11,15],[16,20]]),
+  sceneFadeDuration, bootDelay.
+
+src/data/gameConfig.ts
+  GAME_CONFIG: title, width=480, height=854, backgroundColor, debug, version, targetFps.
 
 src/data/levels.ts
-  Exports DirtType, LevelConfig, ALL_LEVELS, TOTAL_LEVELS, getLevel(), isLastLevel(), calcStars().
-  Current levels: five World 1 dust levels.
-  Comments mention Worlds 2-4 future work; those levels are not implemented.
+  20 levels across 4 worlds. DirtType = 'dust'|'mud'|'oil'|'rust'.
+  LevelConfig: id, world, name, vehicleType (0–9), dirtType, dirtLayers (1–4), parTimeSeconds, bonusZones?.
+  bonusZones: optional array of [localX, localY, w, h] rects relative to vehicle top-left.
+  World 1 (Farm, dust, levels 1–5), World 2 (Ranch, mud, 6–10), World 3 (Garage, oil, 11–15),
+  World 4 (Junkyard, rust, 16–20; some levels have bonusZones).
+  Exports: ALL_LEVELS, TOTAL_LEVELS, WORLD_NAMES, getLevel, isLastLevel, worldForLevel, worldName,
+           levelsInWorld, levelIndexInWorld, calcStars.
+
+src/data/vehicleParts.ts
+  Defines named rectangular regions (VehiclePartDefinition) for each vehicle type.
+  getVehicleParts(vehicleType, width, height): VehiclePartDefinition[]
+  Layouts: carParts (hood/windows/doors/trunk/wheels) for types 0,1,4,7,8;
+           truckParts (cab/bed/tailgate/wheels) for types 2,3,5,6;
+           engineParts (block/hoses/manifold) for type 9.
+  Parts are rectangular approximations — they do not follow PNG silhouettes exactly.
+
+src/systems/EconomySystem.ts
+  Static class. getCash(), addCash(amount), calculateCashReward(CashRewardInput).
+  CashRewardInput: { stars, wasteFraction, bonusZonesCompleted, partsCompleted }.
+  Reward = basePay + stars*starBonus + efficiencyBonus*(1-waste) + bonusZones*bonusZoneCash + parts*partCompleteCash.
+
+src/systems/UpgradeSystem.ts
+  Static class. loadLevels(), saveLevels(levels), getLevel(key), getPrice(key, level),
+  buildOffers(cash, limit?): UpgradeOffer[], buy(key): { success, cash, level },
+  applyToTool(toolKey, toolConfig, dirtType): ToolConfig (applies pressure/sprayWidth/soapQuality bonuses).
+  Types: UpgradeKey, UpgradeLevels, UpgradeOffer.
 
 src/systems/ScoreSystem.ts
-  Exports ScoreSystem. Loads/saves high score through SaveManager.
-  Current scenes do not import or use this class.
+  Exists but is NOT wired into any scene. GameScene implements its own score/high-score logic.
 
 src/systems/SpawnSystem.ts
-  Exports SpawnEntry and SpawnSystem. Generic delta-driven scheduler.
-  Current scenes do not import or use this class.
-  File comments mention DifficultySystem, but no DifficultySystem file exists in this repository.
+  Exists but is NOT wired into any scene.
 
 src/components/ProgressBar.ts
-  Exports ProgressBarConfig and ProgressBar.
-  Phaser Container with Graphics track/fill; constructor calls scene.add.existing(this).
-  Public API: setValue(value), getter value.
+  Phaser Container with Graphics track/fill. setValue(value), getter value. Auto-adds to scene.
 
 src/components/UIButton.ts
-  Exports UIButtonConfig and UIButton.
-  Phaser Container with Graphics, Text, invisible Rectangle hit area.
-  Minimum 44x44 touch target; emits 'click' on pointer-up.
-  Public API: setText(text), setEnabled(enabled), getter isDisabled.
+  Phaser Container with Graphics + Text + invisible hit rect. Min 44x44 touch target.
+  setText(text), setEnabled(bool), isDisabled getter. Emits 'click' or calls onClick callback.
 
 src/utils/helpers.ts
-  Exports pure utilities: randomInt, randomFloat, clamp, lerp, mapRange, zeroPad, formatTime, formatScore, isTouchDevice, randomPick, shuffle, degToRad, distance.
-  No Phaser imports.
+  Pure utilities: randomInt, randomFloat, clamp, lerp, mapRange, zeroPad, formatTime, formatScore,
+  isTouchDevice, randomPick, shuffle, degToRad, distance. No Phaser imports.
 
 src/types/poki.d.ts
-  Ambient declaration for '@poki/phaser-3'.
-  Declares PokiSDK, PokiPluginData, PokiPlugin with runWhenInitialized(), rewardedBreak(), commercialBreak().
+  Ambient declarations for '@poki/phaser-3': PokiSDK, PokiPluginData, PokiPlugin with
+  runWhenInitialized(), rewardedBreak(), commercialBreak().
+
+src/dev/testBridge.ts
+  registerSparkleWashTestBridge(game): void — called from main.ts.
+  Only active when isDev && navigator.webdriver. Exposes window.__sparkleWashTest with:
+    resetProgress(), startLevel(id), render_game_to_text(), advanceTime(ms).
+  Verified absent from production bundle (dist/assets/index-*.js).
 ```
 
 ### 2.3 Scene Flow
@@ -179,70 +190,48 @@ Phaser.Game boots from src/main.ts
        init core services
        delayed start('PreloadScene')
   -> PreloadScene
-       loading UI + procedural texture generation
-       fade out to start('MenuScene')
-  -> MenuScene
-       Play/New Game/Continue starts GameScene with { levelId }
-       mute toggle persists through AudioManager
+       load real PNGs + audio + generate procedural textures
+       fade out -> start('GameScene')   ← direct to game, no menu
   -> GameScene
-       dirt-cleaning gameplay
-       completion at >= 98% clean
-       saves score/progress/stars
-       delayed fade to ResultScene with score data
+       arrival phase: vehicle slides in, customer bubble
+       cleaning phase: wipe dirt, prep+clean loop
+       complete at >= 98% -> ResultScene with full result data
   -> ResultScene
-       Next Level -> GameScene with next levelId
-       Play Again -> GameScene with same levelId
-       Menu -> MenuScene
+       NEXT LEVEL -> GameScene(levelId+1)
+       PLAY AGAIN  -> GameScene(same levelId)
+       MENU        -> MenuScene
+
+MenuScene (reachable from ResultScene or directly):
+  -> GameScene(levelId)
 ```
 
 ### 2.4 Active Dependency Graph
 
 ```text
 main.ts
-  -> ScaleManager
-  -> GAME_CONFIG
-  -> PokiPlugin
+  -> ScaleManager, GAME_CONFIG, PokiPlugin
   -> BootScene, PreloadScene, MenuScene, GameScene, ResultScene
-
-BootScene
-  -> ScaleManager
-  -> AudioManager
-  -> config
-  -> BALANCING
-
-PreloadScene
-  -> ProgressBar
-  -> config
-  -> GAME_CONFIG
-  -> BALANCING
-
-MenuScene
-  -> UIButton
-  -> AudioManager
-  -> SaveManager/SAVE_KEYS
-  -> config
-  -> GAME_CONFIG
-  -> BALANCING
-  -> TOTAL_LEVELS
+  -> registerSparkleWashTestBridge
 
 GameScene
-  -> AudioManager
-  -> config
-  -> GAME_CONFIG
-  -> BALANCING
+  -> AudioManager, Analytics, config, GAME_CONFIG, BALANCING
   -> SaveManager/SAVE_KEYS
-  -> getLevel/calcStars/isLastLevel/LevelConfig
+  -> getLevel, calcStars, isLastLevel, levelIndexInWorld, levelsInWorld, worldName, LevelConfig
+  -> getVehicleParts, VehiclePartDefinition
+  -> EconomySystem, UpgradeSystem
 
 ResultScene
-  -> UIButton
-  -> config
-  -> GAME_CONFIG
-  -> BALANCING
+  -> UIButton, Analytics, config, GAME_CONFIG, BALANCING
+  -> SaveManager/SAVE_KEYS
+  -> getLevel, levelIndexInWorld, levelsInWorld, worldForLevel, worldName
+  -> UpgradeSystem, UpgradeOffer
   -> formatScore
 
-AudioManager -> SaveManager -> localStorage
-ScaleManager -> window/document orientation overlay
-Config -> GAME_CONFIG + BALANCING + browser globals
+EconomySystem -> SaveManager/SAVE_KEYS, BALANCING
+UpgradeSystem -> SaveManager/SAVE_KEYS, BALANCING
+AudioManager  -> SaveManager
+ScaleManager  -> window/document orientation overlay
+Config        -> GAME_CONFIG + BALANCING + browser globals
 ```
 
 ---
@@ -251,93 +240,89 @@ Config -> GAME_CONFIG + BALANCING + browser globals
 
 ### 3.1 Poki Scene Keys Must Match
 
-`src/main.ts` passes these keys to `PokiPlugin`:
-
+`src/main.ts` passes to PokiPlugin:
 ```ts
 loadingSceneKey: 'PreloadScene'
 gameplaySceneKey: 'GameScene'
-autoCommercialBreak: true
 ```
+If either scene key changes, update both the scene constructor and plugin data.
 
-The corresponding scene constructors use:
-
-```ts
-super({ key: 'PreloadScene' })
-super({ key: 'GameScene' })
-```
-
-If either scene key changes, update both the scene constructor and plugin data in `src/main.ts`.
-
-### 3.2 Scene Order Matters
-
-`src/main.ts` uses:
+### 3.2 Scene Order and Boot Path
 
 ```ts
 scene: [BootScene, PreloadScene, MenuScene, GameScene, ResultScene]
 ```
-
-The first scene auto-starts. Keep `BootScene` first unless deliberately changing boot flow.
+BootScene starts first. PreloadScene goes **directly to GameScene** — not MenuScene. MenuScene is only reached from ResultScene or by explicit `scene.start('MenuScene')`.
 
 ### 3.3 Scale Config Is Consumed at Phaser Construction
 
-`ScaleManager.getPhaserScaleConfig()` is used as `config.scale` before `new Phaser.Game(config)`. Keep it in the root Phaser GameConfig. Do not move this call into a scene.
+`ScaleManager.getPhaserScaleConfig()` is used as `config.scale` before `new Phaser.Game(config)`. Do not move this into a scene.
 
 ### 3.4 Save Keys Are Prefix-Scoped
 
-SaveManager writes all keys as `'pg_' + key`. Use `SaveManager.save/load/remove` and `SAVE_KEYS`; do not bypass with direct localStorage writes for game state. If adding a saved value, add a suffix to `SAVE_KEYS` first.
+All SaveManager keys are stored as `'pg_' + key`. Always use `SaveManager.save/load/remove` and `SAVE_KEYS`. Do not bypass with direct localStorage writes.
 
 ### 3.5 AudioManager Is a Static Singleton
 
-Do not instantiate or convert `AudioManager`. It owns static mute/volume/music state and document-level audio unlock listeners. `AudioManager.init(this)` is called from `BootScene.init()`.
+Do not instantiate AudioManager. `AudioManager.init(this)` is called once from `BootScene.init()`.
 
-### 3.6 DOM Ownership Is Limited
+### 3.6 Tool Keys Must Stay in Sync
 
-Game UI and gameplay should be Phaser objects, not DOM elements. Current DOM access is limited to:
-
-- `ScaleManager`: creates/removes `#orientation-warning`.
-- `AudioManager`: attaches/removes audio unlock event listeners on `document`.
-- `Config`/helpers: read browser environment values.
-
-Do not add DOM UI from scenes/components unless there is a deliberate platform-level reason.
-
-### 3.7 Procedural Texture Keys Are Runtime Contracts
-
-`GameScene` expects these texture keys from `PreloadScene.loadAssets()`:
-
+`GameScene.activeTool` is typed as `keyof typeof BALANCING.tools`. The current tool keys are:
 ```text
-vehicle_0
-vehicle_1
-vehicle_2
-vehicle_3
-vehicle_4
-tool_widesponge
-tool_foambrush
-tool_focusspray
-particle
-sparkle
+fan   foam   jet   hot
+```
+`createToolsUI()` builds icons with `'tool_' + key`. `BALANCING.toolUnlockAtLevel` controls when each tool becomes available. Adding or removing tools requires coordinated edits to: `BALANCING.tools`, `BALANCING.toolUnlockAtLevel`, `PreloadScene.loadAssets()` texture generation, `GameScene.createToolsUI()`.
+
+### 3.7 Texture Keys Are Runtime Contracts
+
+GameScene and UI expect these texture keys to be present after PreloadScene:
+```text
+Real PNGs:          vehicle_0  vehicle_1  vehicle_2  vehicle_3  vehicle_4  vehicle_9
+Procedural:         vehicle_5  vehicle_6  vehicle_7  vehicle_8
+Tool icons:         tool_fan   tool_foam  tool_jet   tool_hot
+Particles/FX:       particle   sparkle    bubble
+```
+Replacing procedural textures with real assets: preserve the key or update all GameScene references.
+
+### 3.8 Audio Keys
+
+Loaded in PreloadScene; AudioManager.playSfx is a safe no-op if the key is absent:
+```text
+spray_loop   sfx_clear   sfx_switch   sfx_score
 ```
 
-If replacing procedural graphics with real assets, preserve these keys or update every reference in GameScene and UI code.
+### 3.9 Vehicle Dimensions Are Hard-Coded by Type
 
-### 3.8 Tool Keys Must Stay in Sync
+`GameScene.createVehicleAndDirt()` sets vehicle/mask dimensions based on vehicleType:
+- types 3, 6: larger dimensions
+- all others: default 180×340
 
-`GameScene.activeTool` is typed as `keyof typeof BALANCING.tools`. `createToolsUI()` builds icons with `'tool_' + key`. Adding/removing tools requires coordinated edits:
+If adding vehicleType values, update sizing logic and ensure a matching texture key exists.
 
-- `BALANCING.tools`
-- `PreloadScene.loadAssets()` texture keys
-- any UI layout assumptions in `GameScene.createToolsUI()`
+### 3.10 Part Maps Are Rectangular Approximations
 
-### 3.9 LevelConfig Vehicle Types Are Limited
+`getVehicleParts()` returns axis-aligned rectangles. They do not follow PNG silhouettes. Part completion fires based on grid cells within those rectangles. Do not document part maps as pixel-exact silhouettes.
 
-`LevelConfig.vehicleType` currently assumes generated textures `vehicle_0` through `vehicle_4`. `GameScene.createVehicleAndDirt()` only special-cases vehicle types `1` and `3` for larger dimensions; all other types use the default `180x340`. If adding new vehicle types, update texture generation/loading and sizing logic.
+### 3.11 Foam Prep System
 
-### 3.10 Dirt Layers Are Declared But Not Implemented
+Cells requiring prep (mud/oil/rust levels) must be marked by FOAM before JET/HOT cleans them efficiently. Using JET before FOAM applies only `BALANCING.unpreppedStrengthFactor (0.08)` of normal strength. HOT bypasses prep for mud only (`hotBypassesPrep` guard). Oil and rust always require foam prep.
 
-`LevelConfig.dirtLayers` exists, but `GameScene.drawDirt()` currently uses only `dirtType` to choose colors/blobs. Multi-layer cleaning is not implemented. Do not document or tune layered dirt as active behavior until GameScene uses `dirtLayers`.
+### 3.12 dirtLayers Is Now Active
 
-### 3.11 Keep High-Frequency Paths Lean
+`LevelConfig.dirtLayers` (1=dust, 2=mud, 3=oil, 4=rust) is used by GameScene's wipe logic. Each cell requires multiple passes based on this value. This is not a placeholder.
 
-Current `GameScene.update()` only increments elapsed time and updates timer text. Pointer move handling performs interpolation and wipe checks while the pointer is down. Avoid unnecessary allocations or expensive readbacks in `update()` and pointer-move paths.
+### 3.13 Bonus Zones Are Level-Specific
+
+Only World 4 levels have `bonusZones`. Zones are tracked as `BonusZoneState[]` in GameScene. Each zone awards `BONUS_ZONE_SCORE = 250` points once per run when all its cells are cleaned. Bonus zone data flows through to ResultScene.
+
+### 3.14 Test Bridge Is Dev-Only
+
+`registerSparkleWashTestBridge` checks `isDev && navigator.webdriver` before installing any global. The production bundle contains no test bridge symbols — verified by CI checks.
+
+### 3.15 Keep High-Frequency Paths Lean
+
+`GameScene.update()` only increments elapsed time and updates timer text. Pointer move handling interpolates and wipes while pointer is down. Avoid allocations or expensive readbacks in `update()` and pointer-move paths.
 
 ---
 
@@ -347,34 +332,34 @@ Current `GameScene.update()` only increments elapsed time and updates timer text
 
 | File | Safe replacement zone |
 |---|---|
-| `src/scenes/GameScene.ts` | Main gameplay methods: world creation, vehicle/dirt rendering, particles, HUD, tools UI, input, wipe logic, completion/scoring. Preserve scene key and ResultScene data contract unless updating dependent scenes. |
-| `src/scenes/PreloadScene.ts` | `loadAssets()` only. Replace generated placeholder textures with `this.load.image`, `this.load.spritesheet`, and `this.load.audio` calls. Preserve keys or update all consumers. |
-| `src/data/levels.ts` | Add/update levels and star par times. Keep `getLevel()`, `isLastLevel()`, and `calcStars()` contracts unless updating callers. |
+| `src/scenes/GameScene.ts` | World creation, vehicle/dirt rendering, particles, HUD, tools UI, input, wipe logic, phase transitions, coach card, parts, bonus zones. Preserve scene key and ResultScene data contract. |
+| `src/scenes/PreloadScene.ts` | `loadAssets()` only. Replace generated textures with real `this.load.image` calls. Preserve keys or update consumers. |
+| `src/data/levels.ts` | Add/update levels. Keep exported function signatures. |
 
 ### 4.2 Files to Tune
 
 | File | What to tune |
 |---|---|
-| `src/data/balancing.ts` | `baseScore`, tool radii/strength/names, scene fade duration, boot delay. `startingLives` is currently unused. |
-| `src/data/gameConfig.ts` | Title, dimensions, background color, debug flag, version, target FPS. Width/height feed ScaleManager and scene layout constants. |
+| `src/data/balancing.ts` | All gameplay numbers: scores, tool stats, cash rewards, upgrade prices and bonuses, unlock thresholds. |
+| `src/data/gameConfig.ts` | Title, dimensions, background color, debug flag, version, FPS. |
+| `src/data/vehicleParts.ts` | Part rectangle ratios per vehicle layout. |
 
 ### 4.3 Files to Extend
 
 | File | Extension pattern |
 |---|---|
-| `src/core/SaveManager.ts` | Add new entries to `SAVE_KEYS`, then use SaveManager APIs. |
-| `src/utils/helpers.ts` | Add pure utilities only. Avoid Phaser dependencies here. |
-| `src/types/poki.d.ts` | Extend only when code uses additional `@poki/phaser-3` API. |
-| `src/components/UIButton.ts` | Extend cautiously for shared button behavior; existing scenes depend on pointer state and click emission. |
-| `src/components/ProgressBar.ts` | Extend if multiple progress surfaces need shared behavior. |
+| `src/core/SaveManager.ts` | Add new key to `SAVE_KEYS`, then use `SaveManager.save/load`. |
+| `src/systems/EconomySystem.ts` | Extend `calculateCashReward` for new bonus types. |
+| `src/systems/UpgradeSystem.ts` | Add new upgrade key to `BALANCING.upgrades` then extend `applyToTool`. |
+| `src/utils/helpers.ts` | Add pure utilities only — no Phaser imports. |
 
 ### 4.4 Files to Avoid Unless Necessary
 
 | File | Reason |
 |---|---|
-| `src/main.ts` | Poki plugin registration, scene keys, scene order, scale config, physics config. |
+| `src/main.ts` | Poki plugin registration, scene order, scale config. |
 | `src/core/ScaleManager.ts` | Coupled to Phaser construction scale config and orientation DOM overlay. |
-| `src/core/AudioManager.ts` | Static singleton with persisted audio state and browser unlock listeners. |
+| `src/core/AudioManager.ts` | Static singleton with persisted state and browser unlock listeners. |
 | `src/core/SaveManager.ts` | Prefix and key behavior affect existing saves. |
 | `index.html` | Mobile viewport and touch-action settings are part of browser-game behavior. |
 
@@ -382,71 +367,178 @@ Current `GameScene.update()` only increments elapsed time and updates timer text
 
 ## 5. Public Contracts
 
-### 5.1 GameScene Result Data Contract
+### 5.1 GameScene → ResultScene Data
 
 `GameScene.triggerComplete()` starts ResultScene with:
 
 ```ts
 {
-  score: number,
-  highScore: number,
-  isNewHighScore: boolean,
-  stars: number,
-  levelId: number,
-  levelName: string,
+  score: number
+  highScore: number
+  isNewHighScore: boolean
+  stars: number              // 1–3
+  levelId: number
+  levelName: string
   isLastLevel: boolean
+  bonusZonesTotal: number
+  bonusZonesCompleted: number
+  bonusScore: number
+  partsTotal: number
+  partsCompleted: number
+  partCashBonus: number
+  cashEarned: number
+  cashTotal: number
 }
 ```
 
-If changing scoring/progression, keep this shape or update `ResultScene.init()` and UI.
+If changing this shape, update `ResultScene.init()` and its default values.
 
-### 5.2 Level Data
+### 5.2 GameScene Debug State
+
+`render_game_to_text()` (dev bridge) returns a `GameDebugState` object:
+
+```ts
+{
+  mode: 'game'
+  sceneKey: string
+  phase: 'arrival' | 'cleaning' | 'complete'
+  arrivalSkipped: boolean
+  level: { id, name, dirtType, dirtLayers }
+  progress: { percent, cleanCells, totalCells }
+  timerSeconds: number
+  activeTool: string
+  availableTools: string[]
+  effectiveTool: boolean
+  recommendedTool: string
+  guidedTool: string
+  handPointerVisible: boolean
+  handPointerTarget: string
+  prep: { required, percent, preppedCells, totalCells }
+  feedbackMessage: string
+  customerBubbleVisible: boolean
+  cash: number
+  ownedUpgrades: Record<string, number>
+  tutorialVisible: boolean
+  maskBounds: { left, top, width, height }
+  completion: { finished, wasteRatio }
+  bonusZones: { total, completed, score, zones: Array<{x,y,width,height,completed}> }
+  parts: { total, completed, cashBonus, currentHint, items: Array<{key,label,completed,progress}> }
+  progression: { world, worldName, levelInWorld, worldCompleted, worldTotal,
+                 unlockedTools, totalTools, nextUnlock }
+}
+```
+
+### 5.3 SaveManager Keys
+
+```ts
+export const SAVE_KEYS = {
+  highScore:       'high_score',
+  muted:           'muted',
+  sfxVolume:       'sfx_volume',
+  musicVolume:     'music_volume',
+  completedCleans: 'completed_cleans',
+  currentLevel:    'current_level',   // 1-based id of next unplayed level
+  levelStars:      'level_stars',     // Record<levelId, stars>
+  unlockedTools:   'unlocked_tools',  // string[] e.g. ['fan','foam','jet']
+  levelCompleted:  'level_completed', // Record<levelId, true>
+  cash:            'cash',
+  ownedUpgrades:   'owned_upgrades',  // Record<upgradeKey, level>
+  garageLevel:     'garage_level',
+  completedJobs:   'completed_jobs'   // Record<jobId, true>
+} as const
+```
+
+### 5.4 Level Data
 
 ```ts
 type DirtType = 'dust' | 'mud' | 'oil' | 'rust'
 
 interface LevelConfig {
-  id: number
-  world: number
+  id: number                                       // 1-based, 1–20
+  world: number                                    // 1–4
   name: string
-  vehicleType: number
+  vehicleType: number                              // 0–9
   dirtType: DirtType
-  dirtLayers: number
+  dirtLayers: number                               // 1–4; used by wipe logic
   parTimeSeconds: number
+  bonusZones?: [number, number, number, number][]  // [localX, localY, w, h]
 }
 
-getLevel(levelId: number): LevelConfig
+getLevel(levelId: number): LevelConfig            // clamps to valid range
 isLastLevel(levelId: number): boolean
-calcStars(elapsedSeconds: number, parTimeSeconds: number): number
+worldForLevel(levelId: number): number
+worldName(world: number): string
+levelsInWorld(world: number): number[]
+levelIndexInWorld(levelId: number): number        // 1-based position within world
+calcStars(elapsed, par): 1 | 2 | 3
 ```
 
-`getLevel()` clamps out-of-range IDs to the nearest valid level.
-
-### 5.3 SaveManager
+### 5.5 EconomySystem
 
 ```ts
-SaveManager.save<T>(key: string, value: T): void
-SaveManager.load<T>(key: string, defaultValue: T): T
-SaveManager.remove(key: string): void
-SaveManager.clearAll(): void
-SaveManager.isAvailable(): boolean
-```
+EconomySystem.getCash(): number
+EconomySystem.addCash(amount: number): number
+EconomySystem.calculateCashReward(input: CashRewardInput): number
 
-Current `SAVE_KEYS`:
-
-```ts
-{
-  highScore: 'high_score',
-  muted: 'muted',
-  sfxVolume: 'sfx_volume',
-  musicVolume: 'music_volume',
-  completedCleans: 'completed_cleans',
-  currentLevel: 'current_level',
-  levelStars: 'level_stars'
+interface CashRewardInput {
+  stars: number
+  wasteFraction: number          // 0–1, fraction of wipes that were off-vehicle or wrong-tool
+  bonusZonesCompleted: number
+  partsCompleted: number
 }
 ```
 
-### 5.4 AudioManager
+### 5.6 UpgradeSystem
+
+```ts
+type UpgradeKey = 'pressure' | 'sprayWidth' | 'soapQuality'
+
+interface UpgradeOffer {
+  key: UpgradeKey
+  name: string
+  description: string
+  price: number
+  level: number
+  maxLevel: number
+  canBuy: boolean
+}
+
+UpgradeSystem.loadLevels(): Record<string, number>
+UpgradeSystem.getLevel(key: UpgradeKey): number
+UpgradeSystem.getPrice(key: UpgradeKey, level?: number): number
+UpgradeSystem.buildOffers(cash: number, limit?: number): UpgradeOffer[]
+UpgradeSystem.buy(key: UpgradeKey): { success: boolean; cash: number; level: number }
+UpgradeSystem.applyToTool(toolKey: string, tool: ToolConfig, dirtType: DirtType): ToolConfig
+```
+
+### 5.7 VehicleParts
+
+```ts
+interface VehiclePartRect { x: number; y: number; width: number; height: number }
+interface VehiclePartDefinition { key: string; label: string; rects: VehiclePartRect[] }
+
+getVehicleParts(vehicleType: number, width: number, height: number): VehiclePartDefinition[]
+```
+
+Vehicle type mapping:
+- `0, 1, 4, 7, 8` → carParts (hood, windows, doors, trunk, wheels)
+- `2, 3, 5, 6` → truckParts (cab, bed, tailgate, wheels)
+- `9` → engineParts (block, hoses, manifold)
+
+### 5.8 Analytics
+
+```ts
+Analytics.track(event: string, payload?: Record<string, string|number|boolean|null|undefined>): void
+```
+
+Events emitted by scenes: `menu_viewed`, `game_started`, `level_shown`, `first_wipe_started`,
+`tool_selected`, `tool_unlocked`, `level_completed`, `result_screen_shown`,
+`next_level_selected`, `replay_selected`, `menu_selected_from_result`,
+`reward_offer_claimed`, `reward_offer_declined`.
+
+All events are buffered in `window.__sparkleWashAnalytics[]` and dispatched as `'sparklewash:analytics'` CustomEvent. No network calls.
+
+### 5.9 AudioManager
 
 ```ts
 AudioManager.init(scene: Phaser.Scene): void
@@ -457,288 +549,155 @@ AudioManager.toggleMute(): boolean
 AudioManager.setMuted(muted: boolean): void
 AudioManager.setSfxVolume(volume: number): void
 AudioManager.setMusicVolume(volume: number): void
-AudioManager.muted: boolean
-AudioManager.sfxVolume: number
-AudioManager.musicVolume: number
+// Getters: muted, sfxVolume, musicVolume
 ```
 
-Playback methods are safe no-ops when keys are not loaded.
-
-### 5.5 ScaleManager
+### 5.10 UIButton
 
 ```ts
-ScaleManager.init(): void
-ScaleManager.getPhaserScaleConfig(): Phaser.Types.Core.ScaleConfig
-ScaleManager.isWrongOrientation(): boolean
-ScaleManager.viewportWidth: number
-ScaleManager.viewportHeight: number
-```
-
-Wrong orientation means `window.innerWidth > window.innerHeight && window.innerWidth < 900`.
-
-### 5.6 UIButton
-
-```ts
-new UIButton({
-  scene,
-  x,
-  y,
-  width?,
-  height?,
-  label,
-  fontSize?,
-  color?,
-  hoverColor?,
-  pressColor?,
-  disabledColor?,
-  textColor?,
-  radius?,
-  onClick?
-})
-
+new UIButton({ scene, x, y, width?, height?, label, fontSize?, color?,
+               hoverColor?, pressColor?, disabledColor?, textColor?, radius?, onClick? })
 button.setText(text): this
 button.setEnabled(enabled): this
 button.isDisabled: boolean
 ```
 
-Constructor auto-adds the container to the scene. Listen to `'click'` or pass `onClick`.
-
-### 5.7 ProgressBar
+### 5.11 ProgressBar
 
 ```ts
-new ProgressBar({
-  scene,
-  x,
-  y,
-  width?,
-  height?,
-  trackColor?,
-  fillColor?,
-  highlightColor?,
-  radius?,
-  initialValue?
-})
-
-progressBar.setValue(value): void
+new ProgressBar({ scene, x, y, width?, height?, trackColor?,
+                  fillColor?, highlightColor?, radius?, initialValue? })
+progressBar.setValue(value: number): void  // clamped to [0, 1]
 progressBar.value: number
 ```
-
-Values are clamped to `[0, 1]`. Constructor auto-adds the container to the scene.
-
-### 5.8 ScoreSystem
-
-`ScoreSystem` exists but is not currently wired into scenes.
-
-```ts
-new ScoreSystem()
-score.add(points): void
-score.reset(): void
-score.getScore(): number
-score.getHighScore(): number
-score.isNewHighScore(): boolean
-score.clearHighScore(): void
-```
-
-GameScene currently implements its own final-score/high-score save logic instead of using this class.
-
-### 5.9 SpawnSystem
-
-`SpawnSystem` exists but is not currently wired into scenes.
-
-```ts
-spawner.schedule(callback, intervalMs, fireImmediately?): SpawnEntry
-spawner.tick(deltaMs): void
-spawner.clear(): void
-spawner.remove(entry): void
-spawner.pause(): void
-spawner.resume(): void
-spawner.isPaused: boolean
-spawner.count: number
-```
-
-No `DifficultySystem` exists in the current repository. Do not add documentation or code references to it unless creating the file.
 
 ---
 
 ## 6. Common Tasks
 
-### Add Real Art Assets
+### Add a Real Vehicle Asset
 
-1. Create an asset folder such as `public/assets/`.
-2. Replace procedural texture generation in `PreloadScene.loadAssets()` with loader calls.
-3. Preserve existing keys like `vehicle_0` and `tool_widesponge`, or update GameScene references.
-4. Keep generated fallbacks only if useful for development.
-
-Example:
-
-```ts
-this.load.image('vehicle_0', 'assets/vehicle_0.png')
-this.load.image('tool_widesponge', 'assets/tool_widesponge.png')
-this.load.image('particle', 'assets/particle.png')
-this.load.image('sparkle', 'assets/sparkle.png')
-```
+1. Place PNG in `public/assets/vehicles/vehicle_N.png`.
+2. In `PreloadScene.loadAssets()` replace the `this.make.graphics(...).generateTexture('vehicle_N', ...)` block with `this.load.image('vehicle_N', 'assets/vehicles/vehicle_N.png')`.
+3. Add a `LevelConfig` entry in `src/data/levels.ts` with `vehicleType: N`.
+4. If the vehicle dimensions differ from 180×340, update `GameScene.createVehicleAndDirt()` sizing logic.
+5. Add a part layout to `src/data/vehicleParts.ts` if the new type needs distinct part names.
 
 ### Add Audio
 
-1. Load files in `PreloadScene.loadAssets()`:
-
-```ts
-this.load.audio('sfx_score', 'assets/sfx_score.mp3')
-this.load.audio('bgm', 'assets/bgm.mp3')
-```
-
-2. Existing `AudioManager.playSfx(this, 'sfx_score')` in GameScene completion will start working once `sfx_score` is loaded.
-3. Call `AudioManager.playMusic(this, 'bgm')` from a scene if background music is needed.
-4. Stop music in the relevant scene shutdown/transition path if it should not continue.
+1. Place file in `public/assets/audio/`.
+2. Load in `PreloadScene.loadAssets()`: `this.load.audio('my_sfx', 'assets/audio/my_sfx.wav')`.
+3. Play with `AudioManager.playSfx(this, 'my_sfx')` from any scene. Safe no-op if key is absent.
 
 ### Add Levels
 
 1. Add `LevelConfig` entries in `src/data/levels.ts`.
-2. Ensure `vehicleType` has a matching `vehicle_N` texture.
-3. If dimensions differ from current defaults, update `GameScene.createVehicleAndDirt()`.
-4. Tune `parTimeSeconds` for star ratings.
-5. `TOTAL_LEVELS` updates automatically from `ALL_LEVELS.length`.
+2. Ensure `vehicleType` has a matching texture key in PreloadScene.
+3. Tune `dirtLayers` (1=light, 4=heavy) and `parTimeSeconds`.
+4. Add `bonusZones` for World 4 levels if desired.
+5. `TOTAL_LEVELS` updates automatically.
 
 ### Add a Tool
 
-1. Add the tool to `BALANCING.tools`.
-2. Add/load texture key `tool_<toolKey>` in `PreloadScene.loadAssets()`.
-3. Verify `GameScene.createToolsUI()` spacing still fits all tools.
-4. Confirm `updateBrush()` handles the new radius/strength.
+1. Add entry to `BALANCING.tools` with `radius`, `strength`, `name`, `primaryDirt` (and `prepOnly` if applicable).
+2. Add entry to `BALANCING.toolUnlockAtLevel`.
+3. Generate or load texture key `tool_<toolKey>` in `PreloadScene.loadAssets()`.
+4. Verify `GameScene.createToolsUI()` spacing still fits all tools.
+5. Update `UpgradeSystem.applyToTool()` if the tool interacts with upgrades.
+
+### Add an Upgrade
+
+1. Add entry to `BALANCING.upgrades` with `name`, `description`, `basePrice`, `priceStep`, `maxLevel`, and a bonus field.
+2. Apply the bonus in `UpgradeSystem.applyToTool()`.
+3. `UpgradeSystem.buildOffers()` will surface it automatically in the ResultScene shop.
 
 ### Add a Saved Value
 
-1. Add a suffix to `SAVE_KEYS`.
-2. Read/write via SaveManager only.
-
-```ts
-export const SAVE_KEYS = {
-  ...,
-  myValue: 'my_value'
-} as const
-```
-
-### Add a Rewarded Ad Hook
-
-`ResultScene.create()` contains a TODO block for rewarded breaks. If implementing it, import/cast the plugin type accurately and grant a concrete reward.
-
-```ts
-const poki = this.plugins.get('poki') as import('@poki/phaser-3').PokiPlugin
-poki.rewardedBreak().then((rewarded) => {
-  if (rewarded) {
-    // Grant reward here.
-  }
-})
-```
+1. Add suffix to `SAVE_KEYS` in `src/core/SaveManager.ts`.
+2. Read/write only via `SaveManager.save/load`.
 
 ### Add a New Scene
 
 1. Create `src/scenes/MyScene.ts` with `super({ key: 'MyScene' })`.
-2. Import it in `src/main.ts`.
-3. Add it after `BootScene` in the scene array unless intentionally changing startup.
-4. Navigate with `this.scene.start('MyScene')`.
-5. Do not reuse `PreloadScene` or `GameScene` keys unless also updating Poki plugin data.
+2. Import in `src/main.ts` and add to the scene array after BootScene.
+3. Navigate with `this.scene.start('MyScene')`.
 
 ---
 
 ## 7. Known Placeholders and TODOs
 
-| Placeholder/TODO | Current location | Reality |
+| Placeholder/TODO | Location | Reality |
 |---|---|---|
-| Procedural vehicle textures | `PreloadScene.loadAssets()` | Generated placeholders for `vehicle_0` through `vehicle_4`. |
-| Procedural tool icons | `PreloadScene.loadAssets()` | Generated circle icons for current tool keys. |
-| Procedural particle/sparkle/bubble textures | `PreloadScene.loadAssets()` | Generated runtime textures. `bubble` is generated but not currently used by scenes. |
-| Real audio assets | `PreloadScene.loadAssets()` | Comment says audio omitted to prevent loading errors. |
-| Analytics hooks | `MenuScene`, `ResultScene` | TODO comments for menu_viewed, game_started, result_screen_shown, next_level, game_restarted. |
-| Rewarded ad hook | `ResultScene.create()` | Commented TODO block only. |
-| Worlds 2-4 | `src/data/levels.ts` comments | Not implemented in `ALL_LEVELS`. |
-| Multi-layer dirt | `LevelConfig.dirtLayers` | Data field exists; GameScene does not use it. |
-| `startingLives` | `BALANCING.startingLives` | Present but explicitly unused. |
-| Legacy systems | `ScoreSystem.ts`, `SpawnSystem.ts` | Existing utilities, not used by current scenes. |
+| Procedural vehicles 5–8 | `PreloadScene.loadAssets()` | Graphics-generated; no PNG files |
+| Part masks as rectangles | `src/data/vehicleParts.ts` | Rect approximations only — not silhouette-exact |
+| Foam/part masks | `GameScene` | No authored overlay masks; uses grid cells within part rects |
+| Wrong-order visual feedback | `GameScene.showPrepWarning()` | Camera flash + shake present; stronger sprite feedback deferred |
+| HOT for oil | `BALANCING.tools.hot` | Hot only bypasses prep for mud; oil still needs FOAM first |
+| Legacy rewarded-result fallback | `ResultScene` | Old fallback exists alongside the new cash shop; clean-up deferred |
+| COOP browser warning | Dev automation | Console warning from Poki boot in dev; non-blocking |
+| `ScoreSystem`, `SpawnSystem` | `src/systems/` | Exist but not wired into any scene |
+| `startingLives` | `BALANCING` | Retained for interface compatibility; unused |
 
 ---
 
 ## 8. Current Test Checklist
 
-Run these after code changes once dependencies are installed.
-
 ### Static Checks
 
 ```bash
-npm run typecheck
-npm run build
+npm run typecheck   # must exit 0
+npm run build       # must exit 0; writes to dist/
 ```
-
-Expected after a healthy install:
-
-- `npm run typecheck` exits 0.
-- `npm run build` exits 0 and writes Vite output to `dist/`.
-
-### Dev Server
-
-```bash
-npm run dev
-```
-
-Expected:
-
-- Vite starts on port 3000.
-- Browser opens because `vite.config.ts` sets `open: true`.
 
 ### Scene Flow
 
-- BootScene starts first.
-- BootScene transitions to PreloadScene after `BALANCING.bootDelay`.
-- PreloadScene shows loading UI and reaches Ready/100%.
-- PreloadScene transitions to MenuScene.
-- MenuScene shows Sparkle Wash title, 'Grab a sponge!' tagline, Play or Continue/New Game, mute toggle, version stamp.
-- Play/Continue starts GameScene with a level id.
-- GameScene completion transitions to ResultScene.
-- ResultScene buttons navigate to next level, replay, or menu.
+- BootScene → PreloadScene → **GameScene** (direct, no MenuScene)
+- Garage arrival: vehicle slides in from below, customer bubble appears
+- Click/tap during arrival skips to cleaning phase immediately
+- Cleaning: pointer wipes dirt; foam overlay appears when FOAM tool is used
+- Correct tool cleans at full strength; wrong tool at 20%
+- Unprepped non-dust dirt cleans at 8% strength (unpreppedStrengthFactor)
+- Completion triggers at ≥ 98% clean cells
+- ResultScene shows score, stars, cash earned, part summary, upgrade shop
 
 ### Gameplay
 
-- Vehicle appears centered above screen midpoint.
-- Dirt overlay covers the vehicle.
-- Pointer/touch down wipes dirt.
-- Pointer/touch drag interpolates between positions and wipes continuously.
-- Tool buttons at bottom switch active brush size/strength and update icon scale/alpha.
-- Progress bar/text increases as grid cells are cleaned.
-- Completion triggers at 98% or higher.
-- Timer increments until completion.
-- Completion clears dirt, emits sparkles, computes score/stars, and saves progress.
+- World 1 (dust): FAN available only; single-layer cleaning
+- World 2 (mud): FOAM + JET unlock at level 6; prep required before full cleaning
+- World 3 (oil): HOT unlocks at level 12; FOAM still required for oil
+- World 4 (rust): bonus zones visible as gold overlays; flash green on completion
+- Vehicle parts track independently; completing a part triggers coach toast and +$20
+- Upgrade shop in ResultScene deducts cash and persists the upgrade
+- Purchased upgrades affect tool stats in subsequent jobs
 
 ### Result and Persistence
 
-- ResultScene receives score, highScore, isNewHighScore, stars, levelId, levelName, isLastLevel.
-- Score count-up animation displays formatted score.
-- New best banner appears when `isNewHighScore` is true.
-- NEXT LEVEL is hidden on last level.
-- Enter goes next level when available; otherwise replay.
-- R replays current level.
-- `pg_high_score`, `pg_current_level`, `pg_level_stars`, and `pg_completed_cleans` are written as applicable.
-- Mute state persists via `pg_muted`.
+- ResultScene receives full data contract (§5.1)
+- Cash is persisted via `pg_cash`; upgrades via `pg_owned_upgrades`
+- Star and level progress persisted via `pg_level_stars` and `pg_current_level`
+- Analytics events emitted and available in `window.__sparkleWashAnalytics`
 
 ### Poki Integration
 
-- `loadingSceneKey` remains `PreloadScene`.
-- `gameplaySceneKey` remains `GameScene`.
-- `autoCommercialBreak` remains deliberate if changing ad flow.
-- If adding manual Poki calls, use the declared plugin API from `@poki/phaser-3`.
+- `loadingSceneKey` = `'PreloadScene'`
+- `gameplaySceneKey` = `'GameScene'`
+- `autoCommercialBreak` = `true`
+- Rewarded break via `poki.rewardedBreak()` in ResultScene
 
 ### Responsive/Mobile
 
-- Canvas scales using Phaser Scale.FIT into `#game-container`.
-- Portrait 480x854 layout remains usable.
-- Orientation warning appears when landscape and viewport width is below 900.
-- Touch gestures do not scroll/zoom the page due to viewport meta and `touch-action: none`.
+- Canvas scales via Phaser Scale.FIT into `#game-container`
+- Portrait 480×854 layout; orientation warning when landscape and width < 900
+- Touch gestures blocked from scrolling/zooming
 
 ---
 
 ## 9. Drift Notes for Future Agents
 
-- Do not reintroduce enemy/coin/lives/pause guidance unless those systems exist in code.
-- Do not document `DifficultySystem` unless creating `src/systems/DifficultySystem.ts`.
-- Do not claim Worlds 2-4, multi-layer dirt, rewarded ads, analytics, or real audio are implemented until the code supports them.
-- Do not add line-number-specific documentation unless needed for a short-lived review.
-- Keep this file synchronized with code changes that alter scene keys, save keys, loader asset keys, level data, or result data.
+- Do not reintroduce enemy/coin/lives/pause systems unless created in code.
+- Do not document `DifficultySystem` unless `src/systems/DifficultySystem.ts` exists.
+- Do not claim part masks are silhouette-exact — they are rectangular approximations.
+- Do not claim HOT bypasses prep for oil or rust — it only bypasses mud.
+- Do not claim the test bridge exists in production — verify by checking the built bundle.
+- Keep this file synchronized when: scene keys, save keys, loader asset keys, level data, result data contract, or system APIs change.
+- The legacy widesponge/foambrush/focusspray tool names no longer exist. The current tool keys are fan/foam/jet/hot.
