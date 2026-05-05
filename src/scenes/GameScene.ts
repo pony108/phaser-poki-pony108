@@ -22,6 +22,7 @@ interface GameDebugState {
   sceneKey: string
   coordinateSystem: string
   phase: 'arrival' | 'cleaning' | 'complete'
+  arrivalSkipped: boolean
   level: {
     id: number
     name: string
@@ -38,6 +39,9 @@ interface GameDebugState {
   availableTools: string[]
   effectiveTool: boolean
   recommendedTool: string
+  guidedTool: string
+  handPointerVisible: boolean
+  handPointerTarget: string
   prep: {
     required: boolean
     percent: number
@@ -95,6 +99,11 @@ interface GameDebugState {
   }
 }
 
+interface ArrivalTarget {
+  obj: Phaser.GameObjects.GameObject
+  y: number
+}
+
 interface BonusZoneState {
   localX: number
   localY: number
@@ -138,6 +147,8 @@ export class GameScene extends Phaser.Scene {
   private vehicleShadow!: Phaser.GameObjects.Graphics
   private customerBubble?: Phaser.GameObjects.Container
   private arrivalObjects: Phaser.GameObjects.GameObject[] = []
+  private arrivalTargets: ArrivalTarget[] = []
+  private arrivalSkipped = false
   private phase: 'arrival' | 'cleaning' | 'complete' = 'arrival'
   private hasPlayerStarted = true
   private feedbackMessage = ''
@@ -161,9 +172,13 @@ export class GameScene extends Phaser.Scene {
   private timerText!: Phaser.GameObjects.Text
   private topHintText!: Phaser.GameObjects.Text
   private toolSequenceText?: Phaser.GameObjects.Text
+  private toolHand?: Phaser.GameObjects.Text
+  private toolHandTween?: Phaser.Tweens.Tween
   private toolIcons: Record<string, Phaser.GameObjects.Image> = {}
   private toolBacks: Record<string, Phaser.GameObjects.Arc> = {}
   private toolLabels: Record<string, Phaser.GameObjects.Text> = {}
+  private toolPositions: Record<string, { x: number; y: number }> = {}
+  private handPointerTarget = ''
   private readonly progressBarW = GAME_CONFIG.width - 40
 
   // Particles
@@ -229,7 +244,13 @@ export class GameScene extends Phaser.Scene {
     this.wrongToolWarningTimer = 0
     this.activeTool = 'fan'
     this.toolIcons = {}
+    this.toolBacks = {}
+    this.toolLabels = {}
+    this.toolPositions = {}
+    this.handPointerTarget = ''
     this.arrivalObjects = []
+    this.arrivalTargets = []
+    this.arrivalSkipped = false
     this.phase = 'arrival'
     this.feedbackMessage = ''
     this.coachBaseMessage = ''
@@ -287,6 +308,7 @@ export class GameScene extends Phaser.Scene {
     this.input.off(Phaser.Input.Events.POINTER_MOVE)
     this.input.off(Phaser.Input.Events.POINTER_UP)
     this.stopSprayLoop()
+    if (this.toolHandTween?.isPlaying()) this.toolHandTween.stop()
     this.coachOverrideTimer?.remove(false)
   }
 
@@ -598,10 +620,44 @@ export class GameScene extends Phaser.Scene {
 
   // ─── HUD ──────────────────────────────────────────────────────────────────
 
+  private getSceneLayout(): {
+    safeX: number
+    topY: number
+    hintY: number
+    progressWidth: number
+    coachY: number
+    coachMaxWidth: number
+    toolY: number
+    sequenceY: number
+  } {
+    const safeX = 20
+    const toolY = GAME_CONFIG.height - 56
+    return {
+      safeX,
+      topY: 20,
+      hintY: 46,
+      progressWidth: GAME_CONFIG.width - safeX * 2,
+      coachY: toolY - 126,
+      coachMaxWidth: GAME_CONFIG.width - safeX * 2,
+      toolY,
+      sequenceY: toolY - 76
+    }
+  }
+
+  private fitTextToWidth(text: Phaser.GameObjects.Text, maxWidth: number, maxFontSize: number, minFontSize: number): void {
+    let fontSize = maxFontSize
+    text.setFontSize(fontSize)
+    while (fontSize > minFontSize && text.getBounds().width > maxWidth) {
+      fontSize -= 1
+      text.setFontSize(fontSize)
+    }
+  }
+
   private createHUD(): void {
-    const barW = this.progressBarW
-    const barX = 20
-    const barY = 20
+    const layout = this.getSceneLayout()
+    const barW = layout.progressWidth
+    const barX = layout.safeX
+    const barY = layout.topY
     const barH = 18
 
     // Track
@@ -624,7 +680,7 @@ export class GameScene extends Phaser.Scene {
       oil: 'OIL / FOAM -> JET',
       rust: 'RUST / FOAM -> JET'
     }
-    this.topHintText = this.add.text(20, 46, dirtLabels[this.level.dirtType] ?? this.level.dirtType.toUpperCase(), {
+    this.topHintText = this.add.text(layout.safeX, layout.hintY, dirtLabels[this.level.dirtType] ?? this.level.dirtType.toUpperCase(), {
       fontFamily: 'Arial, sans-serif',
       fontSize: '12px',
       color: '#d8e6f5',
@@ -633,7 +689,7 @@ export class GameScene extends Phaser.Scene {
     this.updateTopHint()
 
     // Timer (top-right)
-    this.timerText = this.add.text(GAME_CONFIG.width - 20, 46, '0s', {
+    this.timerText = this.add.text(GAME_CONFIG.width - layout.safeX, layout.hintY, '0s', {
       fontFamily: 'Arial, sans-serif',
       fontSize: '12px',
       color: '#9fb3c9',
@@ -678,25 +734,49 @@ export class GameScene extends Phaser.Scene {
   }
 
   private startArrivalFlow(): void {
-    const entryOffset = -430
-    for (const obj of this.arrivalObjects) {
+    const entryOffset = 560
+    this.arrivalTargets = this.arrivalObjects.map((obj) => ({
+      obj,
+      y: (obj as unknown as Phaser.GameObjects.Components.Transform).y
+    }))
+
+    for (const { obj, y } of this.arrivalTargets) {
       const target = obj as unknown as Phaser.GameObjects.Components.Transform
-      target.y += entryOffset
+      target.y = y + entryOffset
     }
+    this.vehicleShadow.setAlpha(0.18).setScale(0.82, 0.94)
 
     this.tweens.add({
       targets: this.arrivalObjects,
-      y: `+=${Math.abs(entryOffset)}`,
-      duration: 900,
-      ease: 'Back.Out',
+      y: '-=578',
+      duration: 760,
+      ease: 'Cubic.Out',
       onComplete: () => {
         if (this.phase !== 'arrival') return
+        this.tweens.add({
+          targets: this.arrivalObjects,
+          y: '+=18',
+          duration: 190,
+          ease: 'Back.Out',
+          onComplete: () => {
+            if (this.phase === 'arrival') this.cameras.main.shake(120, 0.0025)
+          }
+        })
         this.tweens.add({
           targets: this.customerBubble,
           alpha: 1,
           scaleX: 1,
           scaleY: 1,
+          y: 126,
           duration: 220,
+          ease: 'Sine.Out'
+        })
+        this.tweens.add({
+          targets: this.vehicleShadow,
+          alpha: 0.4,
+          scaleX: 1,
+          scaleY: 1,
+          duration: 240,
           ease: 'Sine.Out'
         })
         this.time.delayedCall(1600, () => this.startCleaningPhase())
@@ -706,6 +786,7 @@ export class GameScene extends Phaser.Scene {
 
   private startCleaningPhase(): void {
     if (this.phase !== 'arrival') return
+    this.finishArrivalAtTarget()
     this.phase = 'cleaning'
     this.hasPlayerStarted = true
     this.setCoachBaseMessage(this.getActiveCoachInstruction())
@@ -721,6 +802,17 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.updateToolHighlight()
+  }
+
+  private finishArrivalAtTarget(): void {
+    if (this.arrivalTargets.length === 0) return
+    this.arrivalSkipped = this.timeElapsedMs === 0 && this.customerBubble?.alpha === 0
+    this.tweens.killTweensOf(this.arrivalObjects)
+    for (const { obj, y } of this.arrivalTargets) {
+      const target = obj as unknown as Phaser.GameObjects.Components.Transform
+      target.y = y
+    }
+    this.vehicleShadow.setAlpha(0.4).setScale(1, 1)
   }
 
   private getCustomerLine(): string {
@@ -742,8 +834,9 @@ export class GameScene extends Phaser.Scene {
   }
 
   private createCoachMessage(): void {
+    const layout = this.getSceneLayout()
     this.coachMessageBg = this.add.graphics().setDepth(210)
-    this.coachMessageText = this.add.text(CX, GAME_CONFIG.height - 188, '', {
+    this.coachMessageText = this.add.text(CX, layout.coachY, '', {
       fontFamily: 'Arial Black, Arial, sans-serif',
       fontSize: '22px',
       color: '#ffffff',
@@ -757,8 +850,11 @@ export class GameScene extends Phaser.Scene {
 
   private layoutCoachMessage(): void {
     if (!this.coachMessageText || !this.coachMessageBg) return
+    const layout = this.getSceneLayout()
     this.coachMessageBg.clear()
     if (!this.coachMessageText.text) return
+    this.coachMessageText.setY(layout.coachY)
+    this.fitTextToWidth(this.coachMessageText, layout.coachMaxWidth - 32, 22, 15)
     const bounds = this.coachMessageText.getBounds()
     this.coachMessageBg.fillStyle(0x16213e, 0.82)
     this.coachMessageBg.fillRoundedRect(bounds.x - 16, bounds.y - 8, bounds.width + 32, bounds.height + 16, 16)
@@ -836,20 +932,21 @@ export class GameScene extends Phaser.Scene {
 
   private createToolsUI(): void {
     // Only show tools the player has unlocked
+    const layout = this.getSceneLayout()
     const unlockedTools = SaveManager.load<string[]>(SAVE_KEYS.unlockedTools, ['fan'])
     const allKeys = Object.keys(BALANCING.tools)
     const toolKeys = allKeys.filter(k => unlockedTools.includes(k))
-    const spacing = 100
+    const spacing = toolKeys.length <= 2 ? 118 : toolKeys.length === 3 ? 102 : 84
     const startX = CX - ((toolKeys.length - 1) * spacing) / 2
 
     toolKeys.forEach((key, idx) => {
       const x = startX + idx * spacing
-      const y = GAME_CONFIG.height - 70
+      const y = layout.toolY
 
       const bg = this.add.circle(x, y, 36, 0x16213e).setInteractive()
       const icon = this.add.image(x, y, 'tool_' + key).setScale(1.2)
-      const label = this.add.text(x, y + 40, BALANCING.tools[key].name, {
-        fontSize: '10px',
+      const label = this.add.text(x, y + 38, BALANCING.tools[key].name, {
+        fontSize: toolKeys.length >= 4 ? '9px' : '10px',
         color: '#d7e2ef',
         fontFamily: 'Arial, sans-serif',
         fontStyle: 'bold'
@@ -858,9 +955,11 @@ export class GameScene extends Phaser.Scene {
       this.toolBacks[key] = bg
       this.toolIcons[key] = icon
       this.toolLabels[key] = label
+      this.toolPositions[key] = { x, y }
 
       bg.on('pointerdown', () => {
         this.activeTool = key
+        this.animateToolSelection(key)
         this.updateToolHighlight()
         this.updateBrush()
         AudioManager.playSfx(this, 'sfx_switch', 0.5)
@@ -868,8 +967,14 @@ export class GameScene extends Phaser.Scene {
       })
     })
 
+    this.toolHand = this.add.text(CX, layout.toolY - 70, '👇', {
+      fontFamily: 'Arial, sans-serif',
+      fontSize: '34px',
+      resolution: 2
+    }).setOrigin(0.5).setDepth(260).setAlpha(0)
+
     if (this.requiresPrep()) {
-      this.toolSequenceText = this.add.text(CX, GAME_CONFIG.height - 124, 'FOAM  ->  JET', {
+      this.toolSequenceText = this.add.text(CX, layout.sequenceY, 'FOAM  ->  JET', {
         fontFamily: 'Arial, sans-serif',
         fontSize: '12px',
         color: '#8fd3ff',
@@ -896,6 +1001,68 @@ export class GameScene extends Phaser.Scene {
 
     if (this.toolSequenceText) {
       this.toolSequenceText.setAlpha(this.getPrepRatio() < 0.72 ? 1 : 0.42)
+    }
+    this.updateToolHand(recommended)
+  }
+
+  private animateToolSelection(key: string): void {
+    const icon = this.toolIcons[key]
+    const back = this.toolBacks[key]
+    const pos = this.toolPositions[key]
+    if (!icon || !back || !pos) return
+
+    this.tweens.killTweensOf([icon, back])
+    icon.setScale(1.0)
+    back.setScale(1)
+    this.tweens.add({
+      targets: icon,
+      scaleX: 1.45,
+      scaleY: 1.45,
+      duration: 120,
+      ease: 'Back.Out',
+      yoyo: true,
+      onComplete: () => this.updateToolHighlight()
+    })
+    this.tweens.add({
+      targets: back,
+      scaleX: 1.18,
+      scaleY: 1.18,
+      angle: back.angle + 18,
+      duration: 280,
+      ease: 'Sine.Out',
+      yoyo: true
+    })
+    this.sparkleEmitter.explode(8, pos.x, pos.y - 6)
+  }
+
+  private updateToolHand(recommended: string): void {
+    if (!this.toolHand) return
+    const pos = this.toolPositions[recommended]
+    const shouldShow = this.phase !== 'complete' && !!pos && (this.phase === 'arrival' || !this.hasTrackedFirstWipe || this.activeTool !== recommended)
+
+    if (!shouldShow || !pos) {
+      this.toolHand.setAlpha(0)
+      this.handPointerTarget = ''
+      return
+    }
+
+    const targetChanged = this.handPointerTarget !== recommended
+    this.handPointerTarget = recommended
+    this.toolHand.setPosition(pos.x, pos.y - 66).setAlpha(1)
+
+    if (targetChanged || !this.toolHandTween?.isPlaying()) {
+      this.toolHandTween?.stop()
+      this.toolHand.setScale(0.92)
+      this.toolHandTween = this.tweens.add({
+        targets: this.toolHand,
+        y: pos.y - 74,
+        scaleX: 1.08,
+        scaleY: 1.08,
+        duration: 520,
+        yoyo: true,
+        repeat: -1,
+        ease: 'Sine.InOut'
+      })
     }
   }
 
@@ -1688,6 +1855,7 @@ export class GameScene extends Phaser.Scene {
       sceneKey: this.scene.key,
       coordinateSystem: 'Origin is top-left. X increases right, Y increases down.',
       phase: this.phase,
+      arrivalSkipped: this.arrivalSkipped,
       level: {
         id: this.level.id,
         name: this.level.name,
@@ -1704,6 +1872,9 @@ export class GameScene extends Phaser.Scene {
       availableTools,
       effectiveTool: this.getActiveToolConfig().primaryDirt.includes(this.level.dirtType),
       recommendedTool: this.getRecommendedToolName(),
+      guidedTool: this.getRecommendedToolKey(),
+      handPointerVisible: !!this.toolHand && this.toolHand.alpha > 0,
+      handPointerTarget: this.handPointerTarget,
       prep: {
         required: this.requiresPrep(),
         percent: Math.floor(this.getPrepRatio() * 100),

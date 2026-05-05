@@ -150,6 +150,33 @@ export class ResultScene extends Phaser.Scene {
     bg.fillRect(0, 0, GAME_CONFIG.width, GAME_CONFIG.height)
   }
 
+  private fitTextToWidth(text: Phaser.GameObjects.Text, maxWidth: number, maxFontSize: number, minFontSize: number): void {
+    let fontSize = maxFontSize
+    text.setFontSize(fontSize)
+    while (fontSize > minFontSize && text.getBounds().width > maxWidth) {
+      fontSize -= 1
+      text.setFontSize(fontSize)
+    }
+  }
+
+  private createIconChip(x: number, y: number, width: number, label: string, color: number, textColor = '#ffffff'): Phaser.GameObjects.Text {
+    const chip = this.add.graphics()
+    chip.fillStyle(color, 0.92)
+    chip.fillRoundedRect(x - width / 2, y - 18, width, 36, 10)
+    chip.lineStyle(2, 0xffffff, 0.14)
+    chip.strokeRoundedRect(x - width / 2, y - 18, width, 36, 10)
+
+    const text = this.add.text(x, y, label, {
+      fontSize: '15px',
+      fontFamily: 'Arial, sans-serif',
+      color: textColor,
+      fontStyle: 'bold',
+      resolution: 2
+    }).setOrigin(0.5)
+    this.fitTextToWidth(text, width - 16, 15, 10)
+    return text
+  }
+
   // ─── Header ───────────────────────────────────────────────────────────────
 
   private createHeader(): void {
@@ -213,7 +240,7 @@ export class ResultScene extends Phaser.Scene {
       cashTotal
     } = this.resultData
     const hasPartSummary = partsTotal > 0
-    const cardHeight = hasPartSummary ? 164 : 142
+    const cardHeight = 152
 
     // Card background
     const card = this.add.graphics()
@@ -222,10 +249,11 @@ export class ResultScene extends Phaser.Scene {
     card.lineStyle(2, 0x4a90d9, 0.4)
     card.strokeRoundedRect(CX - 160, CY - 145, 320, cardHeight, 16)
 
-    this.add.text(CX, CY - 120, 'Score', {
-      fontSize: '16px',
+    this.add.text(CX, CY - 120, 'SCORE', {
+      fontSize: '13px',
       fontFamily: 'Arial, sans-serif',
       color: '#aaaacc',
+      fontStyle: 'bold',
       resolution: 2
     }).setOrigin(0.5)
 
@@ -238,6 +266,7 @@ export class ResultScene extends Phaser.Scene {
       fontStyle: 'bold',
       resolution: 2
     }).setOrigin(0.5)
+    this.fitTextToWidth(this.scoreValueText, 280, 52, 38)
 
     if (score > 0) {
       let displayed = 0
@@ -255,8 +284,8 @@ export class ResultScene extends Phaser.Scene {
 
     // High-score annotation
     if (isNewHighScore) {
-      this.highScoreText = this.add.text(CX, CY - 25, '🏆 NEW BEST!', {
-        fontSize: '20px',
+      this.highScoreText = this.add.text(CX, CY - 25, '★ BEST', {
+        fontSize: '18px',
         fontFamily: 'Arial, sans-serif',
         color: '#f1c40f',
         fontStyle: 'bold',
@@ -273,31 +302,24 @@ export class ResultScene extends Phaser.Scene {
         ease: 'Sine.easeInOut'
       })
     } else if (highScore > 0) {
-      this.highScoreText = this.add.text(CX, CY - 25, `Best: ${formatScore(highScore)}`, {
-        fontSize: '16px',
+      this.highScoreText = this.add.text(CX, CY - 25, `BEST ${formatScore(highScore)}`, {
+        fontSize: '14px',
         fontFamily: 'Arial, sans-serif',
         color: '#aaaacc',
         resolution: 2
       }).setOrigin(0.5)
     }
 
-    let detailY = CY - 2
-
     if (hasPartSummary) {
-      this.add.text(CX, detailY, `Parts cleaned: ${partsCompleted}/${partsTotal}  +$${partCashBonus}`, {
-        fontSize: '14px',
-        fontFamily: 'Arial, sans-serif',
-        color: '#7dff9a',
-        fontStyle: 'bold',
-        resolution: 2
-      }).setOrigin(0.5)
-      detailY += 22
+      this.createIconChip(CX - 82, CY + 7, 128, `◆ ${partsCompleted}/${partsTotal}`, 0x22394d, '#dfffea')
+      this.createIconChip(CX + 82, CY + 7, 128, `+$${partCashBonus}`, 0x244d34, '#7dff9a')
     }
 
-    this.cashText = this.add.text(CX, detailY + 8, `Cash +$${cashEarned}  Total $${cashTotal}`, {
-      fontSize: '17px',
+    this.createIconChip(CX - 70, CY + 50, 138, `$ +${cashEarned}`, 0x315c3d, '#7dff9a')
+    this.cashText = this.add.text(CX + 80, CY + 50, `TOTAL $${cashTotal}`, {
+      fontSize: '14px',
       fontFamily: 'Arial, sans-serif',
-      color: '#7dff9a',
+      color: '#b7c7df',
       fontStyle: 'bold',
       resolution: 2
     }).setOrigin(0.5)
@@ -307,25 +329,29 @@ export class ResultScene extends Phaser.Scene {
     const currentWorld = worldForLevel(this.resultData.levelId)
     const nextLevelData = this.resultData.isLastLevel ? null : getLevel(this.resultData.levelId + 1)
 
-    const cardTop = CY + 54
-    const cardHeight = 82
+    const cardTop = CY + 80
+    const cardHeight = 68
     const card = this.add.graphics()
     card.fillStyle(0x10182c, 0.88)
     card.fillRoundedRect(CX - 180, cardTop, 360, cardHeight, 18)
     card.lineStyle(2, 0x4a90d9, 0.22)
     card.strokeRoundedRect(CX - 180, cardTop, 360, cardHeight, 18)
 
+    const dirtIcon = nextLevelData
+      ? this.getDirtIcon(nextLevelData.dirtType)
+      : '✓'
     const nextLevelText = nextLevelData
-      ? `Next job: ${nextLevelData.name}`
+      ? `${dirtIcon} ${nextLevelData.name}`
       : 'All jobs cleared'
 
-    this.add.text(CX - 156, cardTop + 14, nextLevelText, {
+    const nextText = this.add.text(CX - 150, cardTop + 14, nextLevelText, {
       fontSize: '16px',
       fontFamily: 'Arial, sans-serif',
       color: '#ffffff',
       fontStyle: 'bold',
       resolution: 2
     }).setOrigin(0, 0)
+    this.fitTextToWidth(nextText, 300, 16, 12)
 
     this.add.text(CX - 156, cardTop + 40, nextLevelData
       ? `${worldName(nextLevelData.world)}  /  ${nextLevelData.dirtType.toUpperCase()}`
@@ -339,21 +365,30 @@ export class ResultScene extends Phaser.Scene {
 
   // ─── Buttons ──────────────────────────────────────────────────────────────
 
+  private getDirtIcon(dirtType: string): string {
+    const icons: Record<string, string> = {
+      dust: '○',
+      mud: '●',
+      oil: '◆',
+      rust: '▲'
+    }
+    return icons[dirtType] ?? '•'
+  }
+
   private createUpgradeShop(): void {
     const offers = UpgradeSystem.buildOffers(this.resultData.cashTotal, 2)
     const primaryOffer = offers[0]
-    const secondaryOffer = offers[1]
-    const y = CY + 172
+    const y = CY + 194
 
-    this.add.text(CX, y - 40, 'RECOMMENDED UPGRADE', {
-      fontSize: '13px',
+    this.add.text(CX, y - 32, '▲ UPGRADE', {
+      fontSize: '12px',
       fontFamily: 'Arial, sans-serif',
       color: '#f5d06f',
       fontStyle: 'bold',
       resolution: 2
     }).setOrigin(0.5)
 
-    this.upgradeStatusText = this.add.text(CX, y + 40, '', {
+    this.upgradeStatusText = this.add.text(CX, y + 34, '', {
       fontSize: '12px',
       fontFamily: 'Arial, sans-serif',
       color: '#8fd3ff',
@@ -371,14 +406,6 @@ export class ResultScene extends Phaser.Scene {
     }
 
     this.createUpgradeButton(primaryOffer, CX, y)
-    if (secondaryOffer) {
-      this.add.text(CX, y + 56, `Alt: ${secondaryOffer.name} $${secondaryOffer.price}`, {
-        fontSize: '12px',
-        fontFamily: 'Arial, sans-serif',
-        color: '#8fd3ff',
-        resolution: 2
-      }).setOrigin(0.5)
-    }
   }
 
   private createUpgradeButton(offer: UpgradeOffer, x: number, y: number): void {
@@ -386,10 +413,10 @@ export class ResultScene extends Phaser.Scene {
       scene: this,
       x,
       y,
-      width: 228,
-      height: 52,
-      label: `${offer.name} L${offer.level + 1}  $${offer.price}`,
-      fontSize: 13,
+      width: 214,
+      height: 46,
+      label: `▲ ${offer.name} L${offer.level + 1}  $${offer.price}`,
+      fontSize: 12,
       color: 0x315c3d,
       hoverColor: 0x3b704a,
       pressColor: 0x274a31,
@@ -407,7 +434,7 @@ export class ResultScene extends Phaser.Scene {
     }
 
     this.resultData.cashTotal = result.cash
-    this.cashText.setText(`Cash +$${this.resultData.cashEarned}  Total $${this.resultData.cashTotal}`)
+    this.cashText.setText(`TOTAL $${this.resultData.cashTotal}`)
     this.upgradeStatusText.setText(`${BALANCING.upgrades[key].name} upgraded to L${result.level}`)
     button.setText('BOUGHT').setEnabled(false)
     Analytics.track('upgrade_bought', {
@@ -420,7 +447,7 @@ export class ResultScene extends Phaser.Scene {
 
   private createButtons(): void {
     const { isLastLevel, levelId } = this.resultData
-    let yOffset = CY + 272
+    let yOffset = CY + 286
 
     // NEXT LEVEL — only if there is a next level
     if (!isLastLevel) {
@@ -430,41 +457,39 @@ export class ResultScene extends Phaser.Scene {
         y: yOffset,
         width: 248,
         height: 56,
-        label: 'NEXT LEVEL',
+        label: 'NEXT',
         fontSize: 24,
         color: 0x27ae60,
         hoverColor: 0x2ecc71,
         pressColor: 0x1e8449,
         onClick: () => this.goToLevel(levelId + 1)
       })
-      yOffset += 68
+      yOffset += 64
     }
 
     // PLAY AGAIN
     new UIButton({
       scene: this,
-      x: CX,
+      x: CX - 58,
       y: yOffset,
-      width: 236,
-      height: 52,
-      label: 'PLAY AGAIN',
-      fontSize: 24,
+      width: 104,
+      height: 44,
+      label: '↻ REPLAY',
+      fontSize: 14,
       color: 0x4a90d9,
       hoverColor: 0x5ba3f5,
       pressColor: 0x357abd,
       onClick: () => this.replayLevel(levelId)
     })
-    yOffset += 58
-
     // MENU
     new UIButton({
       scene: this,
-      x: CX,
+      x: CX + 64,
       y: yOffset,
-      width: 188,
-      height: 42,
-      label: 'MENU',
-      fontSize: 18,
+      width: 104,
+      height: 44,
+      label: '≡ MENU',
+      fontSize: 14,
       color: 0x2c3e50,
       hoverColor: 0x3d5166,
       pressColor: 0x1a252f,

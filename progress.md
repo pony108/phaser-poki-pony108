@@ -254,3 +254,38 @@ Original prompt: Build and iterate a playable web game in this workspace, valida
   - `l1-coach-start.png` shows `NOW BLAST HOOD WITH FAN`.
   - `l6-coach-start.png` shows `FOAM THE MUD ON HOOD`.
   - matching debug states confirm `feedbackMessage` and `parts.currentHint` alignment.
+
+- Continued `plan.md` with responsive UX, hand guidance, tool animation, arrival, and result clarity.
+- Improved responsive gameplay layout:
+  - added a scene layout helper for safe margins, progress width, coach position, tool row, and sequence cue
+  - coach text now auto-shrinks to fit the usable width
+  - toolbar spacing now adapts for 1-4 unlocked tools
+- Added guided hand pointer in `GameScene`:
+  - hand points at the currently recommended tool (`FAN`, `FOAM`, `JET`, etc.)
+  - hand remains visible during guidance and hides after correct cleaning starts
+  - debug state now exposes `guidedTool`, `handPointerVisible`, and `handPointerTarget`
+- Added tool selection juice:
+  - selected tool pops with a short scale animation
+  - tool ring pulses briefly
+  - a small sparkle burst fires on the selected button
+  - recommended tool still has the strongest visual emphasis
+- Improved arrival flow:
+  - vehicle/dirt layers now enter from below the wash bay with overshoot and settle
+  - shadow scales/fades into place
+  - early click/tap snaps arrival objects to final positions before entering cleaning
+  - debug state now includes `arrivalSkipped`
+- Simplified `ResultScene`:
+  - part and cash summaries are icon chips instead of full text lines
+  - next job preview is shorter and uses a dirt icon
+  - recommended upgrade is a compact icon-styled card
+  - primary CTA is now `NEXT`; replay/menu are smaller secondary buttons with icon glyphs
+- Validation after responsive/hand/result pass:
+  - `npm run typecheck` passed.
+  - `npm run build` passed.
+  - Playtest artifacts written to `output/web-game/responsive-hand-result-pass/`.
+  - `l1-arrival.png` shows hand guidance on `FAN`.
+  - `l6-cleaning-hand-foam.png` shows hand guidance on `FOAM`.
+  - `result-compact-final-v2.png` shows compact result hierarchy with smaller secondary CTAs.
+- Validation caveat:
+  - Existing dev-only Poki boot / COOP warnings still appear in Playwright logs.
+  - In the automated completion run, the final drag entered the result screen and bought the visible upgrade; this confirms the button works but makes the screenshot show the post-purchase state.
