@@ -40,6 +40,10 @@ interface GameDebugState {
   effectiveTool: boolean
   recommendedTool: string
   guidedTool: string
+  requiredSequence: string[]
+  currentSequenceStep: string
+  readyToCleanPercent: number
+  toolEffectiveness: 'correct_step' | 'useful_shortcut' | 'wrong_order' | 'wrong_dirt' | 'final_clean'
   handPointerVisible: boolean
   handPointerTarget: string
   prep: {
@@ -48,6 +52,7 @@ interface GameDebugState {
     preppedCells: number
     totalCells: number
   }
+  cellStateSummary: Record<string, number>
   feedbackMessage: string
   customerBubbleVisible: boolean
   cash: number
@@ -136,6 +141,8 @@ interface PartState {
   centerY: number
 }
 
+type DirtCellState = 'raw' | 'softened' | 'foamed' | 'ready'
+
 export class GameScene extends Phaser.Scene {
   private static readonly BONUS_ZONE_SCORE = 250
 
@@ -183,6 +190,11 @@ export class GameScene extends Phaser.Scene {
 
   // Particles
   private effectEmitter!: Phaser.GameObjects.Particles.ParticleEmitter
+  private foamEmitter!: Phaser.GameObjects.Particles.ParticleEmitter
+  private steamEmitter!: Phaser.GameObjects.Particles.ParticleEmitter
+  private dustEmitter!: Phaser.GameObjects.Particles.ParticleEmitter
+  private jetEmitter!: Phaser.GameObjects.Particles.ParticleEmitter
+  private scratchEmitter!: Phaser.GameObjects.Particles.ParticleEmitter
   private sparkleEmitter!: Phaser.GameObjects.Particles.ParticleEmitter
 
   // Game State
@@ -205,6 +217,7 @@ export class GameScene extends Phaser.Scene {
   // Multi-layer dirt tracking
   private layerGrid: number[][] = []
   private prepGrid: boolean[][] = []
+  private cellStateGrid: DirtCellState[][] = []
   private preppedCells = 0
   private bonusZones: BonusZoneState[] = []
   private bonusScore = 0
@@ -259,6 +272,7 @@ export class GameScene extends Phaser.Scene {
     this.bonusZones = []
     this.bonusScore = 0
     this.prepGrid = []
+    this.cellStateGrid = []
     this.preppedCells = 0
     this.vehicleParts = []
     this.partCashBonus = 0
@@ -532,6 +546,7 @@ export class GameScene extends Phaser.Scene {
     this.grid = []
     this.layerGrid = []
     this.prepGrid = []
+    this.cellStateGrid = []
     this.totalCells = 0
     this.cleanCells = 0
     this.preppedCells = 0
@@ -541,10 +556,12 @@ export class GameScene extends Phaser.Scene {
       this.grid[r] = []
       this.layerGrid[r] = []
       this.prepGrid[r] = []
+      this.cellStateGrid[r] = []
       for (let c = 0; c < cols; c++) {
         this.grid[r][c] = false
         this.layerGrid[r][c] = this.level.dirtLayers
-        this.prepGrid[r][c] = this.level.dirtType === 'dust'
+        this.cellStateGrid[r][c] = 'raw'
+        this.prepGrid[r][c] = !this.requiresPrep()
         this.totalCells++
         if (this.prepGrid[r][c]) this.preppedCells++
       }
@@ -605,6 +622,56 @@ export class GameScene extends Phaser.Scene {
       frequency: -1
     })
     this.effectEmitter.setDepth(20)
+
+    this.foamEmitter = this.add.particles(0, 0, 'fx_foam_bubble', {
+      speed: { min: 15, max: 70 },
+      angle: { min: 0, max: 360 },
+      alpha: { start: 0.92, end: 0 },
+      scale: { start: 1.1, end: 0.25 },
+      lifespan: 650,
+      frequency: -1
+    })
+    this.foamEmitter.setDepth(35)
+
+    this.steamEmitter = this.add.particles(0, 0, 'fx_steam', {
+      speedY: { min: -70, max: -25 },
+      speedX: { min: -18, max: 18 },
+      alpha: { start: 0.62, end: 0 },
+      scale: { start: 1.15, end: 1.8 },
+      lifespan: 760,
+      frequency: -1
+    })
+    this.steamEmitter.setDepth(34)
+
+    this.dustEmitter = this.add.particles(0, 0, 'fx_dust_mote', {
+      speed: { min: 45, max: 150 },
+      angle: { min: 170, max: 370 },
+      alpha: { start: 0.78, end: 0 },
+      scale: { start: 1, end: 0.2 },
+      lifespan: 520,
+      frequency: -1
+    })
+    this.dustEmitter.setDepth(32)
+
+    this.jetEmitter = this.add.particles(0, 0, 'fx_jet_splash', {
+      speed: { min: 80, max: 210 },
+      angle: { min: 250, max: 290 },
+      alpha: { start: 0.95, end: 0 },
+      scale: { start: 1.1, end: 0.25 },
+      lifespan: 360,
+      frequency: -1
+    })
+    this.jetEmitter.setDepth(36)
+
+    this.scratchEmitter = this.add.particles(0, 0, 'fx_weak_scratch', {
+      speed: { min: 12, max: 45 },
+      angle: { min: 0, max: 360 },
+      alpha: { start: 0.55, end: 0 },
+      scale: { start: 0.9, end: 0.1 },
+      lifespan: 300,
+      frequency: -1
+    })
+    this.scratchEmitter.setDepth(37)
 
     this.sparkleEmitter = this.add.particles(0, 0, 'sparkle', {
       speed: { min: 50, max: 200 },
@@ -875,16 +942,28 @@ export class GameScene extends Phaser.Scene {
 
   private getActiveCoachInstruction(): string {
     const targetPart = this.getPriorityDirtyPartLabel()
+    const recommended = this.getRecommendedToolName()
+    const step = this.getCurrentSequenceStep()
 
-    if (this.requiresPrep() && this.getPrepRatio() < 0.72) {
+    if (step === 'fan') {
+      return targetPart ? `Sweep dust off ${targetPart}` : 'Sweep dust with FAN'
+    }
+
+    if (step === 'jet') {
       return targetPart
-        ? `Foam the ${this.level.dirtType} on ${targetPart}`
-        : `Foam the ${this.level.dirtType} first`
+        ? `Now blast ${targetPart} with ${recommended}`
+        : `Now blast with ${recommended}`
+    }
+
+    if (step === 'hot') {
+      return targetPart
+        ? `Heat the ${this.level.dirtType} on ${targetPart}`
+        : `Heat the ${this.level.dirtType} first`
     }
 
     return targetPart
-      ? `Now blast ${targetPart} with ${this.getRecommendedToolName()}`
-      : `Now blast with ${this.getRecommendedToolName()}`
+      ? `${recommended} the ${this.level.dirtType} on ${targetPart} first`
+      : `${recommended} the ${this.level.dirtType} first`
   }
 
   private setCoachBaseMessage(message: string): void {
@@ -987,10 +1066,13 @@ export class GameScene extends Phaser.Scene {
 
   private updateToolHighlight(): void {
     const recommended = this.getRecommendedToolKey()
+    const sequence = this.getRequiredSequence()
+    const requiredIndex = sequence.indexOf(recommended)
     for (const key of Object.keys(this.toolIcons)) {
       const active = key === this.activeTool
       const preferred = key === recommended
-      const weakForStep = this.requiresPrep() && this.getPrepRatio() < 0.72 && key !== 'foam'
+      const keyIndex = sequence.indexOf(key)
+      const weakForStep = keyIndex === -1 || keyIndex > requiredIndex
 
       this.toolIcons[key].setScale(active ? 1.34 : preferred ? 1.18 : 1.0)
       this.toolIcons[key].setAlpha(active ? 1 : weakForStep ? 0.32 : preferred ? 1 : 0.62)
@@ -1000,7 +1082,8 @@ export class GameScene extends Phaser.Scene {
     }
 
     if (this.toolSequenceText) {
-      this.toolSequenceText.setAlpha(this.getPrepRatio() < 0.72 ? 1 : 0.42)
+      this.toolSequenceText.setText(this.getRequiredSequence().map((toolKey) => BALANCING.tools[toolKey].name).join('  ->  '))
+      this.toolSequenceText.setAlpha(this.requiresPrep() ? 0.95 : 0.42)
     }
     this.updateToolHand(recommended)
   }
@@ -1074,22 +1157,36 @@ export class GameScene extends Phaser.Scene {
     this.brush.fillStyle(0xffffff, strength)
     this.brush.fillCircle(radius, radius, radius)
 
+    const foamTint = this.level.dirtType === 'oil'
+      ? 0xd8dde0
+      : this.level.dirtType === 'rust'
+        ? 0xf1d6bb
+        : this.level.dirtType === 'mud'
+          ? 0xe6dccf
+          : 0xeaf8ff
+
     this.foamBrush.clear()
-    this.foamBrush.fillStyle(0xeaf8ff, 0.72)
+    this.foamBrush.fillStyle(foamTint, 0.72)
     this.foamBrush.fillCircle(radius, radius, radius)
     this.foamBrush.fillStyle(0xffffff, 0.55)
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < 14; i++) {
       this.foamBrush.fillCircle(
-        radius + Phaser.Math.Between(-Math.floor(radius * 0.55), Math.floor(radius * 0.55)),
-        radius + Phaser.Math.Between(-Math.floor(radius * 0.55), Math.floor(radius * 0.55)),
-        Phaser.Math.Between(3, 8)
+        radius + Phaser.Math.Between(-Math.floor(radius * 0.75), Math.floor(radius * 0.75)),
+        radius + Phaser.Math.Between(-Math.floor(radius * 0.75), Math.floor(radius * 0.75)),
+        Phaser.Math.Between(3, 10)
       )
     }
 
     // Weak brush for wrong-tool passes: same radius, 20% alpha
     this.weakBrush.clear()
-    this.weakBrush.fillStyle(0xffffff, strength * BALANCING.wrongToolStrengthFactor)
-    this.weakBrush.fillCircle(radius, radius, radius)
+    this.weakBrush.lineStyle(2, 0xffffff, Math.max(0.08, strength * BALANCING.wrongToolStrengthFactor))
+    for (let i = 0; i < 4; i++) {
+      const y = radius + Phaser.Math.Between(-Math.floor(radius * 0.4), Math.floor(radius * 0.4))
+      this.weakBrush.beginPath()
+      this.weakBrush.moveTo(radius - radius * 0.35, y)
+      this.weakBrush.lineTo(radius + radius * 0.35, y + Phaser.Math.Between(-5, 5))
+      this.weakBrush.strokePath()
+    }
   }
 
   // ─── Input ────────────────────────────────────────────────────────────────
@@ -1139,12 +1236,7 @@ export class GameScene extends Phaser.Scene {
       this.prevPointerX = point.sceneX
       this.prevPointerY = point.sceneY
 
-      // Dirt-spray particles near pointer
-      const rad = this.getActiveToolConfig().radius
-      this.effectEmitter.emitParticleAt(
-        point.sceneX + Phaser.Math.Between(-rad / 2, rad / 2),
-        point.sceneY + Phaser.Math.Between(-rad / 2, rad / 2)
-      )
+      this.emitToolTrailEffect(point.sceneX, point.sceneY)
     })
 
     this.input.on(Phaser.Input.Events.POINTER_UP, () => {
@@ -1188,17 +1280,6 @@ export class GameScene extends Phaser.Scene {
       return
     }
 
-    // Check tool effectiveness against current dirt type
-    const isEffective = tool.primaryDirt.includes(this.level.dirtType)
-    const prepRequired = this.requiresPrep()
-    // HOT bypasses foam prep for mud: hot water softens mud without needing soap first
-    const hotBypassesPrep = this.activeTool === 'hot' && this.level.dirtType === 'mud'
-    const areaPrepped = !prepRequired || hotBypassesPrep || this.isAreaPrepped(localX, localY, radius)
-    const shouldPrep = !!tool.prepOnly && isEffective
-    const layerReduction = isEffective && areaPrepped
-      ? tool.strength
-      : tool.strength * (isEffective ? BALANCING.unpreppedStrengthFactor : BALANCING.wrongToolStrengthFactor)
-
     if (!this.hasTrackedFirstWipe && this.isWithinMask(localX, localY)) {
       this.hasTrackedFirstWipe = true
       Analytics.track('first_wipe_started', {
@@ -1208,64 +1289,75 @@ export class GameScene extends Phaser.Scene {
       })
     }
 
-    if (shouldPrep) {
-      this.foamRT.draw(this.foamBrush, localX - radius, localY - radius)
-      this.updatePrepCells(localX, localY, radius)
-      this.showPrepFeedback()
-      this.effectEmitter.emitParticleAt(this.maskLeft + localX, this.maskTop + localY, 8)
-      this.totalWipeCalls++
-      this.updatePrepHud()
-      this.setCoachBaseMessage(this.getActiveCoachInstruction())
-      this.updateToolHighlight()
-      this.updateTopHint()
-      return
-    }
-
-    let correctPathTaken = false
-    if (isEffective && areaPrepped) {
-      this.dirtRT.erase(this.brush, localX - radius, localY - radius)
-      this.showGoodToolFeedback()
-      correctPathTaken = true
-    } else if (isEffective && prepRequired && !areaPrepped) {
-      this.streakCells = 0
-      this.lastStreakMilestone = 0
-      this.dirtRT.erase(this.weakBrush, localX - radius, localY - radius)
-      this.showPrepWarning()
-    } else {
-      this.streakCells = 0
-      this.lastStreakMilestone = 0
-      this.dirtRT.erase(this.weakBrush, localX - radius, localY - radius)
-      this.showWrongToolWarning()
-    }
+    const requiredStep = this.getCurrentSequenceStep()
+    const isRecommendedTool = this.activeTool === requiredStep
 
     // Logical grid update (layerGrid drives cell completion)
     let cellsCleanedNow = 0
+    let stagedNow = 0
+    let touchedDirty = 0
+    let blockedByOrder = 0
     const startCol = Math.max(0, Math.floor((localX - radius) / this.CELL_SIZE))
     const gridCols = this.grid[0] ? this.grid[0].length - 1 : 0
     const endCol   = Math.min(gridCols, Math.floor((localX + radius) / this.CELL_SIZE))
     const startRow = Math.max(0, Math.floor((localY - radius) / this.CELL_SIZE))
     const endRow   = Math.min(this.grid.length - 1, Math.floor((localY + radius) / this.CELL_SIZE))
 
+    let usedFoamThisWipe = false
+    let usedHotThisWipe = false
     for (let r = startRow; r <= endRow; r++) {
       for (let c = startCol; c <= endCol; c++) {
-        if (!this.grid[r][c]) {
-          const cx = c * this.CELL_SIZE + this.CELL_SIZE / 2
-          const cy = r * this.CELL_SIZE + this.CELL_SIZE / 2
-          if (Phaser.Math.Distance.Between(cx, cy, localX, localY) <= radius) {
-            this.layerGrid[r][c] = Math.max(0, this.layerGrid[r][c] - layerReduction)
-            if (this.layerGrid[r][c] <= 0) {
-              this.grid[r][c] = true
-              if (this.foamRT && this.prepGrid[r]?.[c]) {
-                this.foamRT.erase(this.brush, localX - radius, localY - radius)
-              }
-              cellsCleanedNow++
-              this.cleanCells++
-              this.updateBonusZoneCell(r, c)
-              this.updatePartCell(r, c)
-            }
+        if (this.grid[r][c]) continue
+
+        const cx = c * this.CELL_SIZE + this.CELL_SIZE / 2
+        const cy = r * this.CELL_SIZE + this.CELL_SIZE / 2
+        if (Phaser.Math.Distance.Between(cx, cy, localX, localY) > radius) continue
+
+        touchedDirty++
+        const state = this.cellStateGrid[r][c] ?? 'raw'
+        const nextState = this.getToolAdvanceState(this.activeTool, state)
+        const canClean = this.canToolCleanState(this.activeTool, state)
+
+        if (nextState && nextState !== state) {
+          this.cellStateGrid[r][c] = nextState
+          stagedNow++
+          if (this.isReadyToCleanState(nextState)) {
+            this.setPrepCellState(r, c, true)
           }
+          if (this.activeTool === 'foam') {
+            usedFoamThisWipe = true
+          }
+          if (this.activeTool === 'hot') {
+            usedHotThisWipe = true
+          }
+          continue
+        }
+
+        if (!canClean) {
+          blockedByOrder++
+          continue
+        }
+
+        const cleanStrength = this.getCleanStrengthForState(this.activeTool, state, isRecommendedTool)
+        this.layerGrid[r][c] = Math.max(0, this.layerGrid[r][c] - cleanStrength)
+        if (this.layerGrid[r][c] <= 0) {
+          this.grid[r][c] = true
+          if (this.foamRT && this.prepGrid[r]?.[c]) {
+            this.foamRT.erase(this.brush, localX - radius, localY - radius)
+          }
+          cellsCleanedNow++
+          this.cleanCells++
+          this.updateBonusZoneCell(r, c)
+          this.updatePartCell(r, c)
         }
       }
+    }
+
+    if (usedFoamThisWipe) {
+      this.foamRT.draw(this.foamBrush, localX - radius, localY - radius)
+    }
+    if (usedHotThisWipe) {
+      this.emitHotSteamEffect(this.maskLeft + localX, this.maskTop + localY)
     }
 
     this.totalWipeCalls++
@@ -1275,9 +1367,25 @@ export class GameScene extends Phaser.Scene {
       this.lastClearSfxMs = this.time.now
     }
 
-    if (correctPathTaken && cellsCleanedNow > 0) {
+    if (cellsCleanedNow > 0) {
+      this.showGoodToolFeedback()
       this.streakCells += cellsCleanedNow
       this.checkStreakMilestone()
+    } else if (stagedNow > 0) {
+      this.showPrepFeedback()
+    } else if (blockedByOrder > 0 && touchedDirty > 0) {
+      this.streakCells = 0
+      this.lastStreakMilestone = 0
+      this.showPrepWarning()
+    } else if (!isRecommendedTool && touchedDirty > 0) {
+      this.streakCells = 0
+      this.lastStreakMilestone = 0
+      this.showWrongToolWarning()
+    }
+
+    if (cellsCleanedNow === 0 && stagedNow === 0 && touchedDirty > 0 && !isRecommendedTool) {
+      this.dirtRT.erase(this.weakBrush, localX - radius, localY - radius)
+      this.emitWeakScratchEffect(this.maskLeft + localX, this.maskTop + localY)
     }
 
     this.setCoachBaseMessage(this.getActiveCoachInstruction())
@@ -1459,11 +1567,12 @@ export class GameScene extends Phaser.Scene {
   private showPrepWarning(): void {
     if (this.wrongToolWarningTimer > 0) return
     this.wrongToolWarningTimer = BALANCING.wrongToolWarningCooldown
-    this.feedbackMessage = `${this.level.dirtType.toUpperCase()} needs FOAM first`
+    const required = this.getRecommendedToolName()
+    this.feedbackMessage = `${this.level.dirtType.toUpperCase()} needs ${required} first`
 
     // Brief red flash to signal wrong order (stronger than the text alone)
     this.cameras.main.flash(160, 200, 50, 50, true)
-    this.showCoachTemporary('Jet is weak before foam', 1100)
+    this.showCoachTemporary(`${required} first`, 1100)
   }
 
   private pulseProgressBar(): void {
@@ -1500,11 +1609,14 @@ export class GameScene extends Phaser.Scene {
   }
 
   private getRecommendedToolKey(): string {
-    const unlockedTools = SaveManager.load<string[]>(SAVE_KEYS.unlockedTools, ['fan'])
-    if (this.level.dirtType === 'mud' && unlockedTools.includes('hot') && this.getPrepRatio() >= 0.72) return 'hot'
-    if (this.requiresPrep() && this.getPrepRatio() < 0.72) return 'foam'
-    if (this.level.dirtType === 'rust' || this.level.dirtType === 'oil' || this.level.dirtType === 'mud') return 'jet'
-    return 'fan'
+    const sequence = this.getRequiredSequence()
+    const unlocked = SaveManager.load<string[]>(SAVE_KEYS.unlockedTools, ['fan'])
+    const stage = this.getPrimaryDirtyStage()
+    const clampedStage = Math.max(0, Math.min(stage, sequence.length - 1))
+    const preferred = sequence[clampedStage] ?? sequence[0]
+    if (unlocked.includes(preferred)) return preferred
+    const fallback = sequence.find((toolKey) => unlocked.includes(toolKey))
+    return fallback ?? 'fan'
   }
 
   private getActiveToolConfig() {
@@ -1520,52 +1632,115 @@ export class GameScene extends Phaser.Scene {
     return this.totalCells > 0 ? this.preppedCells / this.totalCells : 0
   }
 
-  private isAreaPrepped(localX: number, localY: number, radius: number): boolean {
-    if (!this.requiresPrep()) return true
 
-    const startCol = Math.max(0, Math.floor((localX - radius * 0.45) / this.CELL_SIZE))
-    const gridCols = this.grid[0] ? this.grid[0].length - 1 : 0
-    const endCol = Math.min(gridCols, Math.floor((localX + radius * 0.45) / this.CELL_SIZE))
-    const startRow = Math.max(0, Math.floor((localY - radius * 0.45) / this.CELL_SIZE))
-    const endRow = Math.min(this.grid.length - 1, Math.floor((localY + radius * 0.45) / this.CELL_SIZE))
-    let checked = 0
-    let ready = 0
+  private getRequiredSequence(): string[] {
+    return BALANCING.dirtSequences[this.level.dirtType] ?? ['fan']
+  }
 
-    for (let r = startRow; r <= endRow; r++) {
-      for (let c = startCol; c <= endCol; c++) {
-        if (this.grid[r]?.[c]) continue
-        checked++
-        if (this.prepGrid[r]?.[c]) ready++
+  private getCurrentSequenceStep(): string {
+    const state = this.getPrimaryDirtyState()
+    if (this.level.dirtType === 'dust') return 'fan'
+    if (this.level.dirtType === 'mud') return state === 'foamed' || state === 'ready' ? 'jet' : 'foam'
+    if (this.level.dirtType === 'oil') {
+      if (state === 'raw') return 'hot'
+      if (state === 'softened') return 'foam'
+      return 'jet'
+    }
+    if (this.level.dirtType === 'rust') return state === 'foamed' ? 'jet' : 'foam'
+    return 'fan'
+  }
+
+  private getPrimaryDirtyStage(): number {
+    const sequence = this.getRequiredSequence()
+    const step = this.getCurrentSequenceStep()
+    return Math.max(0, sequence.indexOf(step))
+  }
+
+  private getPrimaryDirtyState(): DirtCellState {
+    const stateCounts = new Map<DirtCellState, number>()
+    let dirtyCells = 0
+    for (let r = 0; r < this.grid.length; r++) {
+      for (let c = 0; c < (this.grid[r]?.length ?? 0); c++) {
+        if (this.grid[r][c]) continue
+        const state = this.cellStateGrid[r]?.[c] ?? 'raw'
+        stateCounts.set(state, (stateCounts.get(state) ?? 0) + 1)
+        dirtyCells++
       }
     }
 
-    return checked === 0 || ready / checked >= 0.45
-  }
+    if (dirtyCells <= 0) return 'ready'
 
-  private updatePrepCells(localX: number, localY: number, radius: number): void {
-    if (!this.requiresPrep()) return
-
-    const startCol = Math.max(0, Math.floor((localX - radius) / this.CELL_SIZE))
-    const gridCols = this.grid[0] ? this.grid[0].length - 1 : 0
-    const endCol = Math.min(gridCols, Math.floor((localX + radius) / this.CELL_SIZE))
-    const startRow = Math.max(0, Math.floor((localY - radius) / this.CELL_SIZE))
-    const endRow = Math.min(this.grid.length - 1, Math.floor((localY + radius) / this.CELL_SIZE))
-
-    for (let r = startRow; r <= endRow; r++) {
-      for (let c = startCol; c <= endCol; c++) {
-        if (this.grid[r][c] || this.prepGrid[r][c]) continue
-        const cx = c * this.CELL_SIZE + this.CELL_SIZE / 2
-        const cy = r * this.CELL_SIZE + this.CELL_SIZE / 2
-        if (Phaser.Math.Distance.Between(cx, cy, localX, localY) <= radius) {
-          this.prepGrid[r][c] = true
-          this.preppedCells++
-        }
-      }
+    if (this.level.dirtType === 'oil') {
+      if ((stateCounts.get('foamed') ?? 0) / dirtyCells >= 0.28) return 'foamed'
+      if ((stateCounts.get('softened') ?? 0) / dirtyCells >= 0.28) return 'softened'
+      return 'raw'
     }
+
+    if (this.level.dirtType === 'mud') {
+      const cleanable = (stateCounts.get('foamed') ?? 0) + (stateCounts.get('ready') ?? 0)
+      if (cleanable / dirtyCells >= 0.28) return (stateCounts.get('foamed') ?? 0) >= (stateCounts.get('ready') ?? 0) ? 'foamed' : 'ready'
+      return 'raw'
+    }
+
+    if (this.level.dirtType === 'rust') {
+      if ((stateCounts.get('foamed') ?? 0) / dirtyCells >= 0.28) return 'foamed'
+      return 'raw'
+    }
+
+    return 'raw'
   }
 
-  private updatePrepHud(): void {
-    // Prep is intentionally folded into coach messaging during the cohesion pass.
+  private getToolAdvanceState(toolKey: string, state: DirtCellState): DirtCellState | null {
+    if (toolKey === 'foam') {
+      if ((this.level.dirtType === 'mud' || this.level.dirtType === 'rust') && state === 'raw') return 'foamed'
+      if (this.level.dirtType === 'oil' && state === 'softened') return 'foamed'
+      return null
+    }
+
+    if (toolKey === 'hot') {
+      if (this.level.dirtType === 'oil' && state === 'raw') return 'softened'
+      if (this.level.dirtType === 'mud' && state === 'raw') return 'ready'
+      return null
+    }
+
+    return null
+  }
+
+  private canToolCleanState(toolKey: string, state: DirtCellState): boolean {
+    if (toolKey === 'fan') return this.level.dirtType === 'dust' && state === 'raw'
+    if (toolKey !== 'jet') return false
+    if (this.level.dirtType === 'dust') return state === 'raw'
+    if (this.level.dirtType === 'mud') return state === 'foamed' || state === 'ready'
+    if (this.level.dirtType === 'oil') return state === 'foamed'
+    if (this.level.dirtType === 'rust') return state === 'foamed'
+    return false
+  }
+
+  private isReadyToCleanState(state: DirtCellState): boolean {
+    if (this.level.dirtType === 'dust') return state === 'raw'
+    if (this.level.dirtType === 'mud') return state === 'foamed' || state === 'ready'
+    if (this.level.dirtType === 'oil') return state === 'foamed'
+    if (this.level.dirtType === 'rust') return state === 'foamed'
+    return false
+  }
+
+  private getCleanStrengthForState(toolKey: string, state: DirtCellState, isRecommendedTool: boolean): number {
+    const tool = this.getActiveToolConfig()
+    if (this.canToolCleanState(toolKey, state)) {
+      if (this.level.dirtType === 'dust' && toolKey === 'jet') return tool.strength * 0.35
+      if (this.level.dirtType === 'mud' && state === 'ready') return tool.strength * 0.72
+      return tool.strength
+    }
+    const baseTool = BALANCING.tools[toolKey]
+    const wrongFactor = baseTool?.wrongStateStrengthFactor ?? BALANCING.wrongToolStrengthFactor
+    return tool.strength * (isRecommendedTool ? BALANCING.unpreppedStrengthFactor : wrongFactor)
+  }
+
+  private setPrepCellState(row: number, col: number, prepped: boolean): void {
+    if (this.prepGrid[row][col] === prepped) return
+    this.prepGrid[row][col] = prepped
+    this.preppedCells += prepped ? 1 : -1
+    if (this.preppedCells < 0) this.preppedCells = 0
   }
 
   private createBonusZones(): void {
@@ -1840,6 +2015,67 @@ export class GameScene extends Phaser.Scene {
     // Progression info is intentionally removed from active gameplay HUD.
   }
 
+  private emitToolTrailEffect(sceneX: number, sceneY: number): void {
+    const tool = this.activeTool
+    if (tool === 'foam') {
+      this.foamEmitter.emitParticleAt(sceneX, sceneY, 7)
+      this.sparkleEmitter.emitParticleAt(sceneX + Phaser.Math.Between(-8, 8), sceneY + Phaser.Math.Between(-8, 8), 1)
+      return
+    }
+
+    if (tool === 'jet') {
+      this.jetEmitter.emitParticleAt(sceneX, sceneY, 5)
+      return
+    }
+
+    if (tool === 'hot') {
+      this.emitHotSteamEffect(sceneX, sceneY)
+      return
+    }
+
+    this.dustEmitter.emitParticleAt(sceneX, sceneY, 8)
+  }
+
+  private emitHotSteamEffect(sceneX: number, sceneY: number): void {
+    this.steamEmitter.emitParticleAt(sceneX + Phaser.Math.Between(-8, 8), sceneY + Phaser.Math.Between(-8, 8), 5)
+    this.sparkleEmitter.emitParticleAt(sceneX + Phaser.Math.Between(-6, 6), sceneY + Phaser.Math.Between(-6, 6), 1)
+  }
+
+  private emitWeakScratchEffect(sceneX: number, sceneY: number): void {
+    this.scratchEmitter.emitParticleAt(sceneX, sceneY, 4)
+  }
+
+  private getToolEffectivenessState(): 'correct_step' | 'useful_shortcut' | 'wrong_order' | 'wrong_dirt' | 'final_clean' {
+    const required = this.getCurrentSequenceStep()
+    const state = this.getPrimaryDirtyState()
+    if (this.canToolCleanState(this.activeTool, state)) return 'final_clean'
+    if (this.activeTool === required) return 'correct_step'
+    if (this.getToolAdvanceState(this.activeTool, state)) return 'useful_shortcut'
+    const sequence = this.getRequiredSequence()
+    const activeStepIndex = sequence.indexOf(this.activeTool)
+    const requiredIndex = sequence.indexOf(required)
+    if (activeStepIndex < 0) return 'wrong_dirt'
+    return activeStepIndex > requiredIndex ? 'wrong_order' : 'wrong_dirt'
+  }
+
+  private getCellStateSummary(): Record<string, number> {
+    const summary: Record<string, number> = {
+      raw: 0,
+      softened: 0,
+      foamed: 0,
+      ready: 0,
+      clean: this.cleanCells
+    }
+    for (let r = 0; r < this.grid.length; r++) {
+      for (let c = 0; c < (this.grid[r]?.length ?? 0); c++) {
+        if (this.grid[r][c]) continue
+        const state = this.cellStateGrid[r]?.[c] ?? 'raw'
+        summary[state] = (summary[state] ?? 0) + 1
+      }
+    }
+    return summary
+  }
+
   public getDebugState(): GameDebugState {
     const availableTools = Object.keys(this.toolIcons)
     const progressRatio = this.totalCells > 0 ? this.cleanCells / this.totalCells : 0
@@ -1873,6 +2109,10 @@ export class GameScene extends Phaser.Scene {
       effectiveTool: this.getActiveToolConfig().primaryDirt.includes(this.level.dirtType),
       recommendedTool: this.getRecommendedToolName(),
       guidedTool: this.getRecommendedToolKey(),
+      requiredSequence: this.getRequiredSequence(),
+      currentSequenceStep: this.getCurrentSequenceStep(),
+      readyToCleanPercent: Math.floor(this.getPrepRatio() * 100),
+      toolEffectiveness: this.getToolEffectivenessState(),
       handPointerVisible: !!this.toolHand && this.toolHand.alpha > 0,
       handPointerTarget: this.handPointerTarget,
       prep: {
@@ -1881,6 +2121,7 @@ export class GameScene extends Phaser.Scene {
         preppedCells: this.preppedCells,
         totalCells: this.totalCells
       },
+      cellStateSummary: this.getCellStateSummary(),
       feedbackMessage: this.feedbackMessage,
       customerBubbleVisible: !!this.customerBubble?.active && this.customerBubble.alpha > 0,
       cash: EconomySystem.getCash(),
