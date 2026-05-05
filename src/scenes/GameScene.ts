@@ -139,8 +139,16 @@ export class GameScene extends Phaser.Scene {
   private customerBubble?: Phaser.GameObjects.Container
   private arrivalObjects: Phaser.GameObjects.GameObject[] = []
   private phase: 'arrival' | 'cleaning' | 'complete' = 'arrival'
+  private hasPlayerStarted = true
   private feedbackMessage = ''
-  private feedbackText!: Phaser.GameObjects.Text
+  private coachBaseMessage = ''
+  private coachMessageText!: Phaser.GameObjects.Text
+  private coachMessageBg!: Phaser.GameObjects.Graphics
+  private coachOverrideTimer?: Phaser.Time.TimerEvent
+  private coachToastQueue: string[] = []
+  private coachToastActive = false
+  private tutorialContainer?: Phaser.GameObjects.Container
+  private tutorialTween?: Phaser.Tweens.Tween
   private hasShownGoodToolFeedback = false
   private lastProgressMilestone = 0
 
@@ -151,12 +159,11 @@ export class GameScene extends Phaser.Scene {
   private progressText!: Phaser.GameObjects.Text
   private progressFill!: Phaser.GameObjects.Rectangle
   private timerText!: Phaser.GameObjects.Text
-  private bonusText?: Phaser.GameObjects.Text
-  private partsText!: Phaser.GameObjects.Text
-  private prepText?: Phaser.GameObjects.Text
-  private worldProgressText!: Phaser.GameObjects.Text
-  private nextUnlockText!: Phaser.GameObjects.Text
+  private topHintText!: Phaser.GameObjects.Text
+  private toolSequenceText?: Phaser.GameObjects.Text
   private toolIcons: Record<string, Phaser.GameObjects.Image> = {}
+  private toolBacks: Record<string, Phaser.GameObjects.Arc> = {}
+  private toolLabels: Record<string, Phaser.GameObjects.Text> = {}
   private readonly progressBarW = GAME_CONFIG.width - 40
 
   // Particles
@@ -188,20 +195,15 @@ export class GameScene extends Phaser.Scene {
   private bonusScore = 0
   private vehicleParts: PartState[] = []
   private partCashBonus = 0
-  private lastCompletedPartLabel = ''
   private sprayLoopSound?: Phaser.Sound.BaseSound
   private lastClearSfxMs = -Infinity
   private hasTrackedFirstWipe = false
+  private streakCells = 0
+  private lastStreakMilestone = 0
 
   // Wrong-tool feedback
   private weakBrush!: Phaser.GameObjects.Graphics
-  private wrongToolWarningText!: Phaser.GameObjects.Text
   private wrongToolWarningTimer = 0
-
-  // Tutorial
-  private tutorialContainer!: Phaser.GameObjects.Container
-  private tutorialTween!: Phaser.Tweens.Tween
-  private hasPlayerStarted = false
 
   constructor() {
     super({ key: 'GameScene' })
@@ -230,6 +232,7 @@ export class GameScene extends Phaser.Scene {
     this.arrivalObjects = []
     this.phase = 'arrival'
     this.feedbackMessage = ''
+    this.coachBaseMessage = ''
     this.hasShownGoodToolFeedback = false
     this.lastProgressMilestone = 0
     this.bonusZones = []
@@ -238,11 +241,12 @@ export class GameScene extends Phaser.Scene {
     this.preppedCells = 0
     this.vehicleParts = []
     this.partCashBonus = 0
-    this.lastCompletedPartLabel = ''
     this.lastClearSfxMs = -Infinity
     this.hasTrackedFirstWipe = false
-
-    this.hasPlayerStarted = false
+    this.streakCells = 0
+    this.lastStreakMilestone = 0
+    this.coachToastQueue = []
+    this.coachToastActive = false
 
     this.createWorld()
     this.createVehicleAndDirt()
@@ -250,7 +254,6 @@ export class GameScene extends Phaser.Scene {
     this.createHUD()
     this.checkAndUnlockTools()
     this.createToolsUI()
-    this.refreshProgressionHud()
     this.setupInput()
 
     this.brush = this.make.graphics()
@@ -259,24 +262,7 @@ export class GameScene extends Phaser.Scene {
     this.updateBrush()
     this.createSprayLoopSound()
 
-    // Wrong-tool flash text (hidden until needed)
-    this.wrongToolWarningText = this.add.text(CX, CY + 30, '', {
-      fontFamily: 'Arial Black, Arial, sans-serif',
-      fontSize: '20px',
-      color: '#ffdd57',
-      stroke: '#222222',
-      strokeThickness: 5,
-      resolution: 2
-    }).setOrigin(0.5).setDepth(200).setAlpha(0)
-
-    this.feedbackText = this.add.text(CX, CY - 8, '', {
-      fontFamily: 'Arial Black, Arial, sans-serif',
-      fontSize: '18px',
-      color: '#7dff9a',
-      stroke: '#17351f',
-      strokeThickness: 5,
-      resolution: 2
-    }).setOrigin(0.5).setDepth(220).setAlpha(0)
+    this.createCoachMessage()
 
     this.createCustomerBubble()
     this.startArrivalFlow()
@@ -293,6 +279,7 @@ export class GameScene extends Phaser.Scene {
     this.timeElapsedMs += delta
     this.timerText.setText(`${Math.floor(this.timeElapsedMs / 1000)}s`)
     if (this.wrongToolWarningTimer > 0) this.wrongToolWarningTimer -= delta
+    this.layoutCoachMessage()
   }
 
   shutdown(): void {
@@ -300,12 +287,12 @@ export class GameScene extends Phaser.Scene {
     this.input.off(Phaser.Input.Events.POINTER_MOVE)
     this.input.off(Phaser.Input.Events.POINTER_UP)
     this.stopSprayLoop()
-    if (this.tutorialTween?.isPlaying()) this.tutorialTween.stop()
+    this.coachOverrideTimer?.remove(false)
   }
 
   // ─── Tutorial ────────────────────────────────────────────────────────────
 
-  private createTutorial(): void {
+  public createTutorial(): void {
     if (this.hasPlayerStarted || this.isFinished) return
 
     const handX = CX
@@ -415,7 +402,7 @@ export class GameScene extends Phaser.Scene {
     })
   }
 
-  private dismissTutorial(): void {
+  public dismissTutorial(): void {
     if (this.hasPlayerStarted) return
     this.hasPlayerStarted = true
 
@@ -429,7 +416,7 @@ export class GameScene extends Phaser.Scene {
         scaleY: 0.8,
         duration: 200,
         ease: 'Quad.In',
-        onComplete: () => this.tutorialContainer.destroy()
+        onComplete: () => this.tutorialContainer?.destroy()
       })
     }
   }
@@ -631,71 +618,27 @@ export class GameScene extends Phaser.Scene {
       fontStyle: 'bold'
     }).setOrigin(0.5)
 
-    // Level name + dirt type badge (top-left below bar)
     const dirtLabels: Record<string, string> = {
-      dust: '💨 DUST', mud: '🟫 MUD', oil: '🖤 OIL', rust: '🔶 RUST'
+      dust: 'DUST / FAN',
+      mud: 'MUD / FOAM -> JET',
+      oil: 'OIL / FOAM -> JET',
+      rust: 'RUST / FOAM -> JET'
     }
-    const layerDots = '●'.repeat(this.level.dirtLayers)
-    this.add.text(20, 46, `Lvl ${this.level.id}  ${this.level.name}`, {
-      fontFamily: 'Arial, sans-serif',
-      fontSize: '14px',
-      color: '#aaaacc'
-    }).setOrigin(0, 0)
-
-    this.add.text(GAME_CONFIG.width / 2, 46,
-      `${dirtLabels[this.level.dirtType] ?? this.level.dirtType}  ${layerDots}`, {
-      fontFamily: 'Arial, sans-serif',
-      fontSize: '11px',
-      color: '#ffcc88'
-    }).setOrigin(0.5, 0)
-
-    // Timer (top-right)
-    this.timerText = this.add.text(GAME_CONFIG.width - 20, 46, '0s', {
-      fontFamily: 'Arial, sans-serif',
-      fontSize: '14px',
-      color: '#aaaacc',
-      fontStyle: 'bold'
-    }).setOrigin(1, 0)
-
-    this.worldProgressText = this.add.text(20, 64, this.getWorldProgressLabel(), {
-      fontFamily: 'Arial, sans-serif',
-      fontSize: '11px',
-      color: '#d8e6f5'
-    }).setOrigin(0, 0)
-
-    this.nextUnlockText = this.add.text(GAME_CONFIG.width / 2, 64, this.getNextUnlockLabel(), {
-      fontFamily: 'Arial, sans-serif',
-      fontSize: '11px',
-      color: '#a8d7ff'
-    }).setOrigin(0.5, 0)
-
-    if (this.bonusZones.length > 0) {
-      this.bonusText = this.add.text(GAME_CONFIG.width - 20, 64, '', {
-        fontFamily: 'Arial, sans-serif',
-        fontSize: '12px',
-        color: '#f1c40f',
-        fontStyle: 'bold'
-      }).setOrigin(1, 0)
-      this.updateBonusHud()
-    }
-
-    this.partsText = this.add.text(GAME_CONFIG.width - 20, this.bonusZones.length > 0 ? 82 : 64, '', {
+    this.topHintText = this.add.text(20, 46, dirtLabels[this.level.dirtType] ?? this.level.dirtType.toUpperCase(), {
       fontFamily: 'Arial, sans-serif',
       fontSize: '12px',
       color: '#d8e6f5',
       fontStyle: 'bold'
-    }).setOrigin(1, 0)
-    this.updatePartsHud()
+    }).setOrigin(0, 0)
+    this.updateTopHint()
 
-    if (this.requiresPrep()) {
-      this.prepText = this.add.text(20, 82, '', {
-        fontFamily: 'Arial, sans-serif',
-        fontSize: '12px',
-        color: '#eaf8ff',
-        fontStyle: 'bold'
-      }).setOrigin(0, 0)
-      this.updatePrepHud()
-    }
+    // Timer (top-right)
+    this.timerText = this.add.text(GAME_CONFIG.width - 20, 46, '0s', {
+      fontFamily: 'Arial, sans-serif',
+      fontSize: '12px',
+      color: '#9fb3c9',
+      fontStyle: 'bold'
+    }).setOrigin(1, 0)
   }
 
   private createCustomerBubble(): void {
@@ -714,16 +657,16 @@ export class GameScene extends Phaser.Scene {
       resolution: 2
     }).setOrigin(0.5)
 
-    const text = this.add.text(-82, -30, this.getCustomerLine(), {
+    const text = this.add.text(-82, -24, this.getCustomerLine(), {
       fontFamily: 'Arial, sans-serif',
-      fontSize: '15px',
+      fontSize: '16px',
       color: '#20313a',
       fontStyle: 'bold',
       wordWrap: { width: 210 },
       resolution: 2
     }).setOrigin(0, 0)
 
-    const hint = this.add.text(-82, 18, `${this.level.dirtType.toUpperCase()} needs ${this.getRecommendedToolName()}`, {
+    const hint = this.add.text(-82, 16, this.getArrivalCoachLine(), {
       fontFamily: 'Arial, sans-serif',
       fontSize: '12px',
       color: '#527080',
@@ -764,7 +707,8 @@ export class GameScene extends Phaser.Scene {
   private startCleaningPhase(): void {
     if (this.phase !== 'arrival') return
     this.phase = 'cleaning'
-    this.feedbackMessage = `Use ${this.getRecommendedToolName()} on ${this.level.dirtType.toUpperCase()}`
+    this.hasPlayerStarted = true
+    this.setCoachBaseMessage(this.getActiveCoachInstruction())
 
     if (this.customerBubble) {
       this.tweens.add({
@@ -776,7 +720,7 @@ export class GameScene extends Phaser.Scene {
       })
     }
 
-    this.createTutorial()
+    this.updateToolHighlight()
   }
 
   private getCustomerLine(): string {
@@ -797,6 +741,97 @@ export class GameScene extends Phaser.Scene {
     return [0x4a90d9, 0x9b6a38, 0x6c7a89, 0x9b4f31][Math.max(0, this.level.world - 1)] ?? 0x4a90d9
   }
 
+  private createCoachMessage(): void {
+    this.coachMessageBg = this.add.graphics().setDepth(210)
+    this.coachMessageText = this.add.text(CX, GAME_CONFIG.height - 188, '', {
+      fontFamily: 'Arial Black, Arial, sans-serif',
+      fontSize: '22px',
+      color: '#ffffff',
+      stroke: '#1a2530',
+      strokeThickness: 6,
+      align: 'center',
+      resolution: 2
+    }).setOrigin(0.5).setDepth(215)
+    this.layoutCoachMessage()
+  }
+
+  private layoutCoachMessage(): void {
+    if (!this.coachMessageText || !this.coachMessageBg) return
+    this.coachMessageBg.clear()
+    if (!this.coachMessageText.text) return
+    const bounds = this.coachMessageText.getBounds()
+    this.coachMessageBg.fillStyle(0x16213e, 0.82)
+    this.coachMessageBg.fillRoundedRect(bounds.x - 16, bounds.y - 8, bounds.width + 32, bounds.height + 16, 16)
+    this.coachMessageBg.lineStyle(2, 0x4a90d9, 0.35)
+    this.coachMessageBg.strokeRoundedRect(bounds.x - 16, bounds.y - 8, bounds.width + 32, bounds.height + 16, 16)
+  }
+
+  private getArrivalCoachLine(): string {
+    return this.level.dirtType === 'dust'
+      ? 'Use FAN.'
+      : `Use ${this.getRecommendedToolName()}.`
+  }
+
+  private updateTopHint(): void {
+    if (!this.topHintText) return
+    this.topHintText.setText(`${this.level.dirtType.toUpperCase()} / ${this.getRecommendedToolName()}`)
+  }
+
+  private getActiveCoachInstruction(): string {
+    const targetPart = this.getPriorityDirtyPartLabel()
+
+    if (this.requiresPrep() && this.getPrepRatio() < 0.72) {
+      return targetPart
+        ? `Foam the ${this.level.dirtType} on ${targetPart}`
+        : `Foam the ${this.level.dirtType} first`
+    }
+
+    return targetPart
+      ? `Now blast ${targetPart} with ${this.getRecommendedToolName()}`
+      : `Now blast with ${this.getRecommendedToolName()}`
+  }
+
+  private setCoachBaseMessage(message: string): void {
+    this.coachBaseMessage = message
+    if (this.coachToastActive) return
+    this.feedbackMessage = message
+    this.coachMessageText.setText(message.toUpperCase())
+    this.layoutCoachMessage()
+    this.updateTopHint()
+  }
+
+  private showCoachTemporary(message: string, duration = 1100): void {
+    this.coachToastQueue.push(message)
+    this.playNextCoachToast(duration)
+  }
+
+  private playNextCoachToast(duration = 1100): void {
+    if (this.coachToastActive || this.coachToastQueue.length === 0) return
+    const next = this.coachToastQueue.shift()!
+    this.coachToastActive = true
+    this.coachOverrideTimer?.remove(false)
+    this.feedbackMessage = next
+    this.coachMessageText.setText(next.toUpperCase())
+    this.coachMessageText.setScale(0.92)
+    this.layoutCoachMessage()
+    this.tweens.add({
+      targets: this.coachMessageText,
+      scaleX: 1,
+      scaleY: 1,
+      duration: 140,
+      ease: 'Back.Out'
+    })
+    this.coachOverrideTimer = this.time.delayedCall(duration, () => {
+      this.coachToastActive = false
+      this.feedbackMessage = this.coachBaseMessage
+      this.coachMessageText.setText(this.coachBaseMessage.toUpperCase())
+      this.layoutCoachMessage()
+      if (this.coachToastQueue.length > 0) {
+        this.playNextCoachToast(duration)
+      }
+    })
+  }
+
   // ─── Tools UI ─────────────────────────────────────────────────────────────
 
   private createToolsUI(): void {
@@ -813,13 +848,16 @@ export class GameScene extends Phaser.Scene {
 
       const bg = this.add.circle(x, y, 36, 0x16213e).setInteractive()
       const icon = this.add.image(x, y, 'tool_' + key).setScale(1.2)
-      this.toolIcons[key] = icon
-
-      this.add.text(x, y + 40, BALANCING.tools[key].name, {
+      const label = this.add.text(x, y + 40, BALANCING.tools[key].name, {
         fontSize: '10px',
-        color: '#aaaacc',
-        fontFamily: 'Arial, sans-serif'
+        color: '#d7e2ef',
+        fontFamily: 'Arial, sans-serif',
+        fontStyle: 'bold'
       }).setOrigin(0.5)
+
+      this.toolBacks[key] = bg
+      this.toolIcons[key] = icon
+      this.toolLabels[key] = label
 
       bg.on('pointerdown', () => {
         this.activeTool = key
@@ -830,14 +868,34 @@ export class GameScene extends Phaser.Scene {
       })
     })
 
+    if (this.requiresPrep()) {
+      this.toolSequenceText = this.add.text(CX, GAME_CONFIG.height - 124, 'FOAM  ->  JET', {
+        fontFamily: 'Arial, sans-serif',
+        fontSize: '12px',
+        color: '#8fd3ff',
+        fontStyle: 'bold'
+      }).setOrigin(0.5)
+    }
+
     this.updateToolHighlight()
   }
 
   private updateToolHighlight(): void {
+    const recommended = this.getRecommendedToolKey()
     for (const key of Object.keys(this.toolIcons)) {
       const active = key === this.activeTool
-      this.toolIcons[key].setScale(active ? 1.4 : 1.0)
-      this.toolIcons[key].setAlpha(active ? 1.0 : 0.5)
+      const preferred = key === recommended
+      const weakForStep = this.requiresPrep() && this.getPrepRatio() < 0.72 && key !== 'foam'
+
+      this.toolIcons[key].setScale(active ? 1.34 : preferred ? 1.18 : 1.0)
+      this.toolIcons[key].setAlpha(active ? 1 : weakForStep ? 0.32 : preferred ? 1 : 0.62)
+      this.toolBacks[key]?.setFillStyle(preferred ? 0x244d62 : 0x16213e, preferred ? 1 : 0.92)
+      this.toolBacks[key]?.setStrokeStyle(active ? 3 : preferred ? 2 : 0, preferred ? 0x8fd3ff : 0x4a90d9, active ? 1 : 0.55)
+      this.toolLabels[key]?.setAlpha(preferred || active ? 1 : 0.58)
+    }
+
+    if (this.toolSequenceText) {
+      this.toolSequenceText.setAlpha(this.getPrepRatio() < 0.72 ? 1 : 0.42)
     }
   }
 
@@ -966,7 +1024,9 @@ export class GameScene extends Phaser.Scene {
     // Check tool effectiveness against current dirt type
     const isEffective = tool.primaryDirt.includes(this.level.dirtType)
     const prepRequired = this.requiresPrep()
-    const areaPrepped = !prepRequired || this.isAreaPrepped(localX, localY, radius)
+    // HOT bypasses foam prep for mud: hot water softens mud without needing soap first
+    const hotBypassesPrep = this.activeTool === 'hot' && this.level.dirtType === 'mud'
+    const areaPrepped = !prepRequired || hotBypassesPrep || this.isAreaPrepped(localX, localY, radius)
     const shouldPrep = !!tool.prepOnly && isEffective
     const layerReduction = isEffective && areaPrepped
       ? tool.strength
@@ -988,16 +1048,25 @@ export class GameScene extends Phaser.Scene {
       this.effectEmitter.emitParticleAt(this.maskLeft + localX, this.maskTop + localY, 8)
       this.totalWipeCalls++
       this.updatePrepHud()
+      this.setCoachBaseMessage(this.getActiveCoachInstruction())
+      this.updateToolHighlight()
+      this.updateTopHint()
       return
     }
 
+    let correctPathTaken = false
     if (isEffective && areaPrepped) {
       this.dirtRT.erase(this.brush, localX - radius, localY - radius)
       this.showGoodToolFeedback()
+      correctPathTaken = true
     } else if (isEffective && prepRequired && !areaPrepped) {
+      this.streakCells = 0
+      this.lastStreakMilestone = 0
       this.dirtRT.erase(this.weakBrush, localX - radius, localY - radius)
       this.showPrepWarning()
     } else {
+      this.streakCells = 0
+      this.lastStreakMilestone = 0
       this.dirtRT.erase(this.weakBrush, localX - radius, localY - radius)
       this.showWrongToolWarning()
     }
@@ -1039,6 +1108,14 @@ export class GameScene extends Phaser.Scene {
       this.lastClearSfxMs = this.time.now
     }
 
+    if (correctPathTaken && cellsCleanedNow > 0) {
+      this.streakCells += cellsCleanedNow
+      this.checkStreakMilestone()
+    }
+
+    this.setCoachBaseMessage(this.getActiveCoachInstruction())
+    this.updateToolHighlight()
+    this.updateTopHint()
     this.updateProgress()
   }
 
@@ -1064,6 +1141,9 @@ export class GameScene extends Phaser.Scene {
     this.isFinished = true
     this.phase = 'complete'
     this.stopSprayLoop()
+
+    // Camera punch: celebratory shake
+    this.cameras.main.shake(380, 0.01)
 
     // Flash clear remaining dirt instantly
     this.dirtRT.clear()
@@ -1185,39 +1265,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private showToolUnlockBanner(toolKey: string): void {
-    const tool = BALANCING.tools[toolKey]
-    if (!tool) return
-
-    const banner = this.add.text(CX, GAME_CONFIG.height - 130,
-      `🔧 NEW NOZZLE: ${tool.name}!`, {
-      fontFamily: 'Arial Black, Arial, sans-serif',
-      fontSize: '22px',
-      color: '#ffffff',
-      stroke: '#1a1a2e',
-      strokeThickness: 6,
-      resolution: 2
-    }).setOrigin(0.5).setDepth(300).setAlpha(0).setScale(0.5)
-
-    this.tweens.add({
-      targets: banner,
-      alpha: 1,
-      scaleX: 1,
-      scaleY: 1,
-      duration: 350,
-      ease: 'Back.Out',
-      onComplete: () => {
-        this.time.delayedCall(2200, () => {
-          this.tweens.add({
-            targets: banner,
-            alpha: 0,
-            y: GAME_CONFIG.height - 160,
-            duration: 400,
-            ease: 'Quad.In',
-            onComplete: () => banner.destroy()
-          })
-        })
-      }
-    })
+    void toolKey
   }
 
   // ─── Wrong-Tool Warning ───────────────────────────────────────────────────
@@ -1228,59 +1276,17 @@ export class GameScene extends Phaser.Scene {
 
     const betterTool = this.getRecommendedToolName()
     this.feedbackMessage = `${this.level.dirtType.toUpperCase()} needs ${betterTool}`
-    this.wrongToolWarningText.setText(this.feedbackMessage)
-    this.wrongToolWarningText.setText(`⚠️ Try ${betterTool}!`)
-    this.wrongToolWarningText.setText(this.feedbackMessage)
-    this.wrongToolWarningText.setAlpha(1)
-
-    this.tweens.killTweensOf(this.wrongToolWarningText)
-    this.tweens.add({
-      targets: this.wrongToolWarningText,
-      alpha: 0,
-      y: CY + 10,
-      duration: 1200,
-      delay: 600,
-      ease: 'Quad.In',
-      onComplete: () => {
-        this.wrongToolWarningText.setY(CY + 30)
-      }
-    })
+    this.showCoachTemporary(`Try ${betterTool}`, 1000)
   }
 
   private showGoodToolFeedback(): void {
     if (this.hasShownGoodToolFeedback) return
     this.hasShownGoodToolFeedback = true
-    this.feedbackMessage = `${this.getRecommendedToolName()} is working`
-    this.feedbackText.setText('GOOD TOOL')
-    this.feedbackText.setAlpha(1).setScale(0.85)
-
-    this.tweens.killTweensOf(this.feedbackText)
-    this.tweens.add({
-      targets: this.feedbackText,
-      alpha: 0,
-      scaleX: 1.12,
-      scaleY: 1.12,
-      duration: 850,
-      delay: 250,
-      ease: 'Sine.Out'
-    })
+    this.setCoachBaseMessage(this.getActiveCoachInstruction())
   }
 
   private showPrepFeedback(): void {
-    this.feedbackMessage = `Foam loosens ${this.level.dirtType.toUpperCase()}`
-    this.feedbackText.setText('FOAM PREP')
-    this.feedbackText.setColor('#eaf8ff')
-    this.feedbackText.setAlpha(1).setScale(0.85)
-
-    this.tweens.killTweensOf(this.feedbackText)
-    this.tweens.add({
-      targets: this.feedbackText,
-      alpha: 0,
-      scaleX: 1.08,
-      scaleY: 1.08,
-      duration: 520,
-      ease: 'Sine.Out'
-    })
+    this.setCoachBaseMessage(this.getActiveCoachInstruction())
   }
 
   private showPrepWarning(): void {
@@ -1288,26 +1294,9 @@ export class GameScene extends Phaser.Scene {
     this.wrongToolWarningTimer = BALANCING.wrongToolWarningCooldown
     this.feedbackMessage = `${this.level.dirtType.toUpperCase()} needs FOAM first`
 
-    this.wrongToolWarningText.setText('Use FOAM first')
-    this.wrongToolWarningText.setAlpha(1).setScale(0.9)
-
-    this.tweens.add({
-      targets: this.wrongToolWarningText,
-      scaleX: 1.12,
-      scaleY: 1.12,
-      duration: 130,
-      yoyo: true,
-      repeat: 1,
-      ease: 'Sine.Out',
-      onComplete: () => {
-        this.tweens.add({
-          targets: this.wrongToolWarningText,
-          alpha: 0,
-          duration: 260,
-          delay: 500
-        })
-      }
-    })
+    // Brief red flash to signal wrong order (stronger than the text alone)
+    this.cameras.main.flash(160, 200, 50, 50, true)
+    this.showCoachTemporary('Jet is weak before foam', 1100)
   }
 
   private pulseProgressBar(): void {
@@ -1320,13 +1309,35 @@ export class GameScene extends Phaser.Scene {
     })
   }
 
-  private getRecommendedToolName(): string {
-    if (this.requiresPrep() && this.getPrepRatio() < 0.72) return 'FOAM'
+  private checkStreakMilestone(): void {
+    const milestones: Array<[number, string]> = [
+      [25, 'STREAK! 🔥'],
+      [65, 'HOT STREAK! 🔥'],
+      [130, 'ON FIRE! 🔥🔥']
+    ]
+    for (const [threshold, label] of milestones) {
+      if (this.streakCells >= threshold && this.lastStreakMilestone < threshold) {
+        this.lastStreakMilestone = threshold
+        this.showStreakFeedback(label)
+        break
+      }
+    }
+  }
 
-    const dt = this.level.dirtType
-    if (dt === 'rust' || dt === 'oil') return 'JET'
-    if (dt === 'mud') return 'JET'
-    return 'FAN'
+  private showStreakFeedback(label: string): void {
+    this.showCoachTemporary(label.replace(/[^A-Z ]/gi, '').trim() || 'Streak', 950)
+  }
+
+  private getRecommendedToolName(): string {
+    return BALANCING.tools[this.getRecommendedToolKey()].name
+  }
+
+  private getRecommendedToolKey(): string {
+    const unlockedTools = SaveManager.load<string[]>(SAVE_KEYS.unlockedTools, ['fan'])
+    if (this.level.dirtType === 'mud' && unlockedTools.includes('hot') && this.getPrepRatio() >= 0.72) return 'hot'
+    if (this.requiresPrep() && this.getPrepRatio() < 0.72) return 'foam'
+    if (this.level.dirtType === 'rust' || this.level.dirtType === 'oil' || this.level.dirtType === 'mud') return 'jet'
+    return 'fan'
   }
 
   private getActiveToolConfig() {
@@ -1387,10 +1398,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private updatePrepHud(): void {
-    if (!this.prepText) return
-    const prepPct = Math.floor(this.getPrepRatio() * 100)
-    const nextStep = prepPct >= 72 ? `Use ${this.getRecommendedToolName()} now` : 'Use FOAM first'
-    this.prepText.setText(`PREP ${prepPct}%  ${nextStep}`)
+    // Prep is intentionally folded into coach messaging during the cohesion pass.
   }
 
   private createBonusZones(): void {
@@ -1406,6 +1414,7 @@ export class GameScene extends Phaser.Scene {
       )
         .setStrokeStyle(2, 0xf1c40f, 0.65)
         .setDepth(12)
+        .setVisible(false)
 
       const zone: BonusZoneState = {
         localX,
@@ -1479,11 +1488,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private updateBonusHud(): void {
-    if (!this.bonusText) return
-
-    this.bonusText.setText(
-      `BONUS ${this.getCompletedBonusZoneCount()}/${this.bonusZones.length}  +${this.bonusScore}`
-    )
+    // Bonus HUD is hidden during the cohesion pass.
   }
 
   private getCompletedBonusZoneCount(): number {
@@ -1556,57 +1561,46 @@ export class GameScene extends Phaser.Scene {
   private completeVehiclePart(part: PartState): void {
     part.completed = true
     this.partCashBonus += BALANCING.cash.partCompleteCash
-    this.lastCompletedPartLabel = part.label
-    this.feedbackMessage = `${part.label} clean`
+    this.setCoachBaseMessage(this.getActiveCoachInstruction())
     this.updatePartsHud()
-
-    const label = this.add.text(part.centerX, part.centerY, `${part.label.toUpperCase()} CLEAN +$${BALANCING.cash.partCompleteCash}`, {
-      fontFamily: 'Arial Black, Arial, sans-serif',
-      fontSize: '14px',
-      color: '#ffffff',
-      stroke: '#16351d',
-      strokeThickness: 5,
-      resolution: 2
-    }).setOrigin(0.5).setDepth(230).setAlpha(0).setScale(0.85)
 
     this.sparkleEmitter.explode(18, part.centerX, part.centerY)
     AudioManager.playSfx(this, 'sfx_clear', 0.45)
-
-    this.tweens.add({
-      targets: label,
-      alpha: 1,
-      y: part.centerY - 20,
-      scaleX: 1,
-      scaleY: 1,
-      duration: 220,
-      ease: 'Back.Out',
-      onComplete: () => {
-        this.time.delayedCall(550, () => {
-          this.tweens.add({
-            targets: label,
-            alpha: 0,
-            y: label.y - 18,
-            duration: 250,
-            ease: 'Quad.In',
-            onComplete: () => label.destroy()
-          })
-        })
-      }
-    })
+    this.showCoachTemporary(`${part.label} clean +$${BALANCING.cash.partCompleteCash}`)
   }
 
   private updatePartsHud(): void {
-    if (!this.partsText) return
-    this.partsText.setText(`PARTS ${this.getCompletedPartCount()}/${this.vehicleParts.length}  +$${this.partCashBonus}`)
+    // Part summary is result/debug-only during the cohesion pass.
   }
 
   private getCompletedPartCount(): number {
     return this.vehicleParts.filter((part) => part.completed).length
   }
 
-  private getNextDirtyPartLabel(): string {
-    const nextPart = this.vehicleParts.find((part) => !part.completed)
-    return nextPart ? `${nextPart.label} dirty` : 'All parts clean'
+  private getPriorityDirtyPartLabel(): string | null {
+    const nextPart = this.getPriorityDirtyPart()
+    return nextPart ? nextPart.label : null
+  }
+
+  private getPriorityDirtyPart(): PartState | null {
+    let candidate: PartState | null = null
+    let highestDirtyRatio = -1
+
+    for (const part of this.vehicleParts) {
+      if (part.completed || part.totalCells <= 0) continue
+      const dirtyRatio = part.remainingCells / part.totalCells
+      if (dirtyRatio > highestDirtyRatio) {
+        highestDirtyRatio = dirtyRatio
+        candidate = part
+      }
+    }
+
+    return candidate
+  }
+
+  private getCurrentPartHint(): string {
+    const targetPart = this.getPriorityDirtyPartLabel()
+    return targetPart ? `${targetPart} dirty` : 'All parts clean'
   }
 
   private createSprayLoopSound(): void {
@@ -1653,7 +1647,7 @@ export class GameScene extends Phaser.Scene {
     ))
   }
 
-  private getWorldProgressLabel(): string {
+  public getWorldProgressLabel(): string {
     const world = this.level.world
     const ids = levelsInWorld(world)
     const completed = SaveManager.load<Record<number, boolean>>(SAVE_KEYS.levelCompleted, {})
@@ -1676,8 +1670,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private refreshProgressionHud(): void {
-    this.worldProgressText.setText(this.getWorldProgressLabel())
-    this.nextUnlockText.setText(this.getNextUnlockLabel())
+    // Progression info is intentionally removed from active gameplay HUD.
   }
 
   public getDebugState(): GameDebugState {
@@ -1721,7 +1714,7 @@ export class GameScene extends Phaser.Scene {
       customerBubbleVisible: !!this.customerBubble?.active && this.customerBubble.alpha > 0,
       cash: EconomySystem.getCash(),
       ownedUpgrades: UpgradeSystem.loadLevels(),
-      tutorialVisible: !this.hasPlayerStarted && !!this.tutorialContainer?.active,
+      tutorialVisible: false,
       maskBounds: {
         left: this.maskLeft,
         top: this.maskTop,
@@ -1748,7 +1741,7 @@ export class GameScene extends Phaser.Scene {
         total: this.vehicleParts.length,
         completed: this.getCompletedPartCount(),
         cashBonus: this.partCashBonus,
-        currentHint: this.lastCompletedPartLabel ? `${this.lastCompletedPartLabel} clean` : this.getNextDirtyPartLabel(),
+        currentHint: this.getCurrentPartHint(),
         items: this.vehicleParts.map((part) => ({
           key: part.key,
           label: part.label,

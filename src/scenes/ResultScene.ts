@@ -206,18 +206,14 @@ export class ResultScene extends Phaser.Scene {
       score,
       highScore,
       isNewHighScore,
-      bonusZonesTotal,
-      bonusZonesCompleted,
-      bonusScore,
       partsTotal,
       partsCompleted,
       partCashBonus,
       cashEarned,
       cashTotal
     } = this.resultData
-    const hasBonusSummary = bonusZonesTotal > 0
     const hasPartSummary = partsTotal > 0
-    const cardHeight = hasBonusSummary ? 190 : 154
+    const cardHeight = hasPartSummary ? 164 : 142
 
     // Card background
     const card = this.add.graphics()
@@ -285,7 +281,7 @@ export class ResultScene extends Phaser.Scene {
       }).setOrigin(0.5)
     }
 
-    let detailY = CY - 4
+    let detailY = CY - 2
 
     if (hasPartSummary) {
       this.add.text(CX, detailY, `Parts cleaned: ${partsCompleted}/${partsTotal}  +$${partCashBonus}`, {
@@ -298,27 +294,8 @@ export class ResultScene extends Phaser.Scene {
       detailY += 22
     }
 
-    if (hasBonusSummary) {
-      this.add.text(CX, detailY, `Bonus zones: ${bonusZonesCompleted}/${bonusZonesTotal}`, {
-        fontSize: '15px',
-        fontFamily: 'Arial, sans-serif',
-        color: '#f1c40f',
-        fontStyle: 'bold',
-        resolution: 2
-      }).setOrigin(0.5)
-      detailY += 20
-
-      this.add.text(CX, detailY, `Bonus score: +${formatScore(bonusScore)}`, {
-        fontSize: '14px',
-        fontFamily: 'Arial, sans-serif',
-        color: '#aaaacc',
-        resolution: 2
-      }).setOrigin(0.5)
-      detailY += 24
-    }
-
     this.cashText = this.add.text(CX, detailY + 8, `Cash +$${cashEarned}  Total $${cashTotal}`, {
-      fontSize: '15px',
+      fontSize: '17px',
       fontFamily: 'Arial, sans-serif',
       color: '#7dff9a',
       fontStyle: 'bold',
@@ -328,26 +305,21 @@ export class ResultScene extends Phaser.Scene {
 
   private createProgressPreview(): void {
     const currentWorld = worldForLevel(this.resultData.levelId)
-    const worldLevels = levelsInWorld(currentWorld)
-    const completedLevels = SaveManager.load<Record<number, boolean>>(SAVE_KEYS.levelCompleted, {})
-    const completedInWorld = worldLevels.filter((id) => completedLevels[id]).length
-    const unlockedTools = SaveManager.load<string[]>(SAVE_KEYS.unlockedTools, ['fan'])
     const nextLevelData = this.resultData.isLastLevel ? null : getLevel(this.resultData.levelId + 1)
 
-    const cardTop = CY + 44
-    const cardHeight = 118
+    const cardTop = CY + 54
+    const cardHeight = 82
     const card = this.add.graphics()
     card.fillStyle(0x10182c, 0.88)
     card.fillRoundedRect(CX - 180, cardTop, 360, cardHeight, 18)
     card.lineStyle(2, 0x4a90d9, 0.22)
     card.strokeRoundedRect(CX - 180, cardTop, 360, cardHeight, 18)
 
-    const nextWorldLevel = Math.min(levelIndexInWorld(this.resultData.levelId), worldLevels.length)
     const nextLevelText = nextLevelData
-      ? `Next: W${nextLevelData.world}-${levelIndexInWorld(nextLevelData.id)} ${worldName(nextLevelData.world)} / ${nextLevelData.dirtType.toUpperCase()}`
-      : 'Next: All worlds cleared'
+      ? `Next job: ${nextLevelData.name}`
+      : 'All jobs cleared'
 
-    this.add.text(CX - 156, cardTop + 16, `${worldName(currentWorld)}  W${currentWorld}-${nextWorldLevel}`, {
+    this.add.text(CX - 156, cardTop + 14, nextLevelText, {
       fontSize: '16px',
       fontFamily: 'Arial, sans-serif',
       color: '#ffffff',
@@ -355,30 +327,26 @@ export class ResultScene extends Phaser.Scene {
       resolution: 2
     }).setOrigin(0, 0)
 
-    this.add.text(CX - 156, cardTop + 42, `World progress ${completedInWorld}/${worldLevels.length}  •  Tools ${unlockedTools.length}/${Object.keys(BALANCING.tools).length}`, {
+    this.add.text(CX - 156, cardTop + 40, nextLevelData
+      ? `${worldName(nextLevelData.world)}  /  ${nextLevelData.dirtType.toUpperCase()}`
+      : `${worldName(currentWorld)} complete`, {
       fontSize: '13px',
       fontFamily: 'Arial, sans-serif',
       color: '#b7c7df',
       resolution: 2
     }).setOrigin(0, 0)
-
-    this.add.text(CX - 156, cardTop + 66, nextLevelText, {
-      fontSize: '13px',
-      fontFamily: 'Arial, sans-serif',
-      color: '#8fd3ff',
-      resolution: 2
-    }).setOrigin(0, 0)
-
   }
 
   // ─── Buttons ──────────────────────────────────────────────────────────────
 
   private createUpgradeShop(): void {
     const offers = UpgradeSystem.buildOffers(this.resultData.cashTotal, 2)
-    const y = CY + 188
+    const primaryOffer = offers[0]
+    const secondaryOffer = offers[1]
+    const y = CY + 172
 
-    this.add.text(CX, y - 42, 'GARAGE UPGRADES', {
-      fontSize: '14px',
+    this.add.text(CX, y - 40, 'RECOMMENDED UPGRADE', {
+      fontSize: '13px',
       fontFamily: 'Arial, sans-serif',
       color: '#f5d06f',
       fontStyle: 'bold',
@@ -392,7 +360,7 @@ export class ResultScene extends Phaser.Scene {
       resolution: 2
     }).setOrigin(0.5)
 
-    if (offers.length === 0) {
+    if (!primaryOffer) {
       this.add.text(CX, y - 4, 'All upgrades owned', {
         fontSize: '15px',
         fontFamily: 'Arial, sans-serif',
@@ -402,11 +370,15 @@ export class ResultScene extends Phaser.Scene {
       return
     }
 
-    const startX = offers.length === 1 ? CX : CX - 92
-    offers.forEach((offer, index) => {
-      const x = startX + index * 184
-      this.createUpgradeButton(offer, x, y)
-    })
+    this.createUpgradeButton(primaryOffer, CX, y)
+    if (secondaryOffer) {
+      this.add.text(CX, y + 56, `Alt: ${secondaryOffer.name} $${secondaryOffer.price}`, {
+        fontSize: '12px',
+        fontFamily: 'Arial, sans-serif',
+        color: '#8fd3ff',
+        resolution: 2
+      }).setOrigin(0.5)
+    }
   }
 
   private createUpgradeButton(offer: UpgradeOffer, x: number, y: number): void {
@@ -414,8 +386,8 @@ export class ResultScene extends Phaser.Scene {
       scene: this,
       x,
       y,
-      width: 172,
-      height: 46,
+      width: 228,
+      height: 52,
       label: `${offer.name} L${offer.level + 1}  $${offer.price}`,
       fontSize: 13,
       color: 0x315c3d,
@@ -447,8 +419,8 @@ export class ResultScene extends Phaser.Scene {
   }
 
   private createButtons(): void {
-    const { isLastLevel, levelId, bonusZonesTotal } = this.resultData
-    let yOffset = bonusZonesTotal > 0 ? CY + 246 : CY + 232
+    const { isLastLevel, levelId } = this.resultData
+    let yOffset = CY + 272
 
     // NEXT LEVEL — only if there is a next level
     if (!isLastLevel) {
@@ -456,7 +428,7 @@ export class ResultScene extends Phaser.Scene {
         scene: this,
         x: CX,
         y: yOffset,
-        width: 240,
+        width: 248,
         height: 56,
         label: 'NEXT LEVEL',
         fontSize: 24,
@@ -465,7 +437,7 @@ export class ResultScene extends Phaser.Scene {
         pressColor: 0x1e8449,
         onClick: () => this.goToLevel(levelId + 1)
       })
-      yOffset += 66
+      yOffset += 68
     }
 
     // PLAY AGAIN
@@ -473,8 +445,8 @@ export class ResultScene extends Phaser.Scene {
       scene: this,
       x: CX,
       y: yOffset,
-      width: 240,
-      height: 56,
+      width: 236,
+      height: 52,
       label: 'PLAY AGAIN',
       fontSize: 24,
       color: 0x4a90d9,
@@ -482,17 +454,17 @@ export class ResultScene extends Phaser.Scene {
       pressColor: 0x357abd,
       onClick: () => this.replayLevel(levelId)
     })
-    yOffset += 62
+    yOffset += 58
 
     // MENU
     new UIButton({
       scene: this,
       x: CX,
       y: yOffset,
-      width: 200,
-      height: 46,
+      width: 188,
+      height: 42,
       label: 'MENU',
-      fontSize: 20,
+      fontSize: 18,
       color: 0x2c3e50,
       hoverColor: 0x3d5166,
       pressColor: 0x1a252f,
@@ -630,7 +602,6 @@ export class ResultScene extends Phaser.Scene {
     const availableActions = this.resultData.isLastLevel
       ? ['play_again', 'menu']
       : ['next_level', 'play_again', 'menu']
-    const rewardOffer = this.getRewardOffer()
     const currentWorld = worldForLevel(this.resultData.levelId)
     const worldLevels = levelsInWorld(currentWorld)
     const completedLevels = SaveManager.load<Record<number, boolean>>(SAVE_KEYS.levelCompleted, {})
@@ -661,8 +632,6 @@ export class ResultScene extends Phaser.Scene {
       levelInWorld: levelIndexInWorld(this.resultData.levelId),
       worldProgress: `${worldLevels.filter((id) => completedLevels[id]).length}/${worldLevels.length}`,
       unlockedTools: unlockedTools.join(','),
-      rewardOfferType: rewardOffer.type,
-      rewardOfferValue: rewardOffer.type === 'tool' ? rewardOffer.toolKey : BALANCING.rewardedScoreBonus,
       availableActions
     }
   }

@@ -172,3 +172,85 @@ Original prompt: Build and iterate a playable web game in this workspace, valida
   - Add stronger wrong-order visual feedback for using `JET` before `FOAM`.
   - Add a proper `Hot` role after foam for oil/rust or make `Hot` a purchased upgrade rather than a required dirt solution.
   - Add authored part masks and foam masks instead of broad rectangular approximations.
+
+- Continued `plan.md` with game-feel pass: HOT bypass, streak system, camera punch, stronger wrong-order feedback.
+- HOT tool now bypasses foam prep requirement for mud (`hotBypassesPrep` guard in `handleWipe`):
+  - Logic: hot water softens mud without needing soap pre-treatment.
+  - `areaPrepped = !prepRequired || hotBypassesPrep || isAreaPrepped(...)`.
+  - `layerReduction` is full strength when HOT+mud, so it cleans at 0.95 layers per pass.
+  - HOT remains wrong/weak for oil and rust (not in `primaryDirt`).
+- Updated `getRecommendedToolName` to recommend `HOT` for mud when HOT is unlocked (level 12+).
+  - Customer bubble, cleaning hint, and wrong-tool warning all reflect HOT automatically.
+  - FOAM→JET path remains valid for mud but is now the sub-optimal route after HOT unlocks.
+- Added clean streak system:
+  - `streakCells` counter increments by cells cleaned per correct-tool wipe; resets to 0 on wrong-tool or unprepped wipe.
+  - `checkStreakMilestone()` fires `showStreakFeedback()` at thresholds 25 / 65 / 130 cells.
+  - Labels: `STREAK! 🔥`, `HOT STREAK! 🔥`, `ON FIRE! 🔥🔥` in gold, pop-scale animation on `feedbackText`.
+- Strengthened wrong-order feedback in `showPrepWarning()`:
+  - Added `cameras.main.flash(160, 200, 50, 50, true)` — brief red screen flash on first JET-before-FOAM hit per cooldown window.
+  - Existing shake animation and "Use FOAM first" text remain.
+- Added camera punch on level completion in `triggerComplete()`:
+  - `cameras.main.shake(380, 0.01)` fires before sparkle burst and score calculation.
+- Validation after game-feel pass:
+  - `npm run typecheck` passed.
+  - `npm run build` passed (73 kB game bundle, same size as before).
+- Note: `ParticleEmitter.setTint()` is not exposed in the Phaser 3.90 TypeScript types; tool-tinted particles were deferred.
+- Updated next TODOs:
+  - Add authored part masks and foam masks instead of broad rectangular approximations.
+  - Consider making soapQuality upgrade also apply to HOT on oil (premium degreaser path).
+  - Add a `Hot` difficulty entry for World 2 replay: level select or challenge mode hint.
+  - Verify streak + camera shake end-to-end with Playwright when automation environment is stable.
+
+- Continued `plan.md` with the cohesion / simplification pass.
+- Simplified active gameplay UI in `GameScene`:
+  - replaced layered feedback surfaces with one persistent coach card near the bottom center
+  - reduced top HUD to progress, compact dirt/tool hint, and timer only
+  - hid progression, bonus, part, and prep counters from player-facing gameplay HUD while keeping them in debug state
+  - hid bonus zone overlays from the playable slice without removing internal bonus logic
+- Unified guidance and reward messaging:
+  - arrival and cleaning now use one coach instruction at a time such as `NOW BLAST WITH FAN` or `FOAM THE MUD FIRST`
+  - wrong-tool and wrong-order feedback now route through coach toasts instead of separate center warnings
+  - part completion feedback is serialized through the coach toast queue, replacing overlapping floating labels
+- Simplified tool presentation:
+  - recommended tool now gets the strongest emphasis
+  - weak tools during prep-required states are attenuated
+  - mud/oil/rust sequences now show a lightweight `FOAM -> JET` strip above the tool row
+  - gameplay unlock banner is suppressed during this pass to avoid attention competition
+- Simplified `ResultScene` hierarchy:
+  - score and cash remain primary
+  - bonus-zone summaries are hidden from visible result UI
+  - next-job preview is compacted into a small two-line card
+  - upgrade area is reduced to one recommended upgrade plus one lightweight alternate line
+  - CTA hierarchy is now `NEXT LEVEL`, then `PLAY AGAIN`, then `MENU`
+- Validation after cohesion pass:
+  - `npm run typecheck` passed.
+  - `npm run build` passed.
+  - Playtest artifacts written to:
+    - `output/web-game/cohesion-pass/`
+    - `output/web-game/cohesion-pass-level6/`
+    - `output/web-game/cohesion-pass-result/`
+  - `l1-cleaning-start.png` shows the minimal HUD plus one coach instruction with no tutorial hand.
+  - `l1-after-pass.png` shows the vehicle still centered as focal point while reward text stays singular.
+  - `result.png` shows cash-first result hierarchy, compact next-job preview, one recommended upgrade, and clear CTA ordering.
+- Validation caveat:
+  - Browser automation still reports the existing Poki boot / COOP console warnings in dev.
+  - Tool-bar clicks under letterboxed Playwright runs remain slightly finicky, so mud sequencing was validated mainly through visible emphasis and debug-state messaging rather than a fully reliable automated tool-switch assertion.
+
+- Continued `plan.md` with a Game Studio gameplay-clarity pass on part guidance.
+- Improved coach specificity in `GameScene`:
+  - base coach instruction now targets a concrete dirty part instead of generic wording
+  - examples in-game: `NOW BLAST HOOD WITH FAN`, `FOAM THE MUD ON HOOD`
+  - prep and non-prep coach states now share the same part-priority logic
+- Added part-priority helper logic:
+  - picks the highest dirty-ratio incomplete part (`remainingCells / totalCells`)
+  - exposed through `getPriorityDirtyPart()` and reused for coach + debug hint
+- Updated debug/state parity:
+  - `parts.currentHint` now reports the same current dirty-part target used by guidance
+  - removed stale "last completed part" dependency so hints do not stay locked on past completions
+- Validation after part-guidance pass:
+  - `npm run typecheck` passed.
+  - `npm run build` passed.
+  - Playtest artifacts written to `output/web-game/cohesion-pass-part-hints/`.
+  - `l1-coach-start.png` shows `NOW BLAST HOOD WITH FAN`.
+  - `l6-coach-start.png` shows `FOAM THE MUD ON HOOD`.
+  - matching debug states confirm `feedbackMessage` and `parts.currentHint` alignment.
