@@ -14,6 +14,7 @@ import { ProgressBar } from '../components/ProgressBar'
 import { config } from '../core/Config'
 import { GAME_CONFIG } from '../data/gameConfig'
 import { BALANCING } from '../data/balancing'
+import { PokiBridge } from '../lib/poki/PokiBridge'
 
 const CX = GAME_CONFIG.width / 2
 const CY = GAME_CONFIG.height / 2
@@ -108,6 +109,7 @@ export class PreloadScene extends Phaser.Scene {
       this.loadingText.setText('Ready!')
       this.progressBar.setValue(1)
       this.percentText.setText('100%')
+      PokiBridge.gameLoadingFinished('preload_complete')
     })
   }
 

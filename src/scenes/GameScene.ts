@@ -1,11 +1,13 @@
 import { AudioManager } from '../core/AudioManager'
 import { Analytics } from '../core/Analytics'
+import { UIButton } from '../components/UIButton'
 import { config } from '../core/Config'
 import { GAME_CONFIG } from '../data/gameConfig'
 import { BALANCING } from '../data/balancing'
 import { SaveManager, SAVE_KEYS } from '../core/SaveManager'
 import { getLevel, calcStars, isLastLevel, levelIndexInWorld, levelsInWorld, LevelConfig, worldName } from '../data/levels'
 import { getVehicleParts, VehiclePartDefinition } from '../data/vehicleParts'
+import { PokiBridge } from '../lib/poki/PokiBridge'
 import { EconomySystem } from '../systems/EconomySystem'
 import { UpgradeSystem } from '../systems/UpgradeSystem'
 
@@ -142,6 +144,7 @@ interface PartState {
 }
 
 type DirtCellState = 'raw' | 'softened' | 'foamed' | 'ready'
+type WipeResult = 'cleaned' | 'advanced' | 'blocked_wrong_order' | 'wrong_tool' | 'empty'
 
 export class GameScene extends Phaser.Scene {
   private static readonly BONUS_ZONE_SCORE = 250
@@ -181,6 +184,16 @@ export class GameScene extends Phaser.Scene {
   private toolSequenceText?: Phaser.GameObjects.Text
   private toolHand?: Phaser.GameObjects.Text
   private toolHandTween?: Phaser.Tweens.Tween
+  private pauseButton?: UIButton
+  private pauseOverlay?: Phaser.GameObjects.Container
+  private pauseResumeButton?: UIButton
+  private pauseReplayButton?: UIButton
+  private pauseMenuButton?: UIButton
+  private escKey?: Phaser.Input.Keyboard.Key
+  private targetPartOverlay?: Phaser.GameObjects.Graphics
+  private targetPartLabel?: Phaser.GameObjects.Text
+  private targetPartTween?: Phaser.Tweens.Tween
+  private currentTargetPartKey = ''
   private toolIcons: Record<string, Phaser.GameObjects.Image> = {}
   private toolBacks: Record<string, Phaser.GameObjects.Arc> = {}
   private toolLabels: Record<string, Phaser.GameObjects.Text> = {}
@@ -207,6 +220,7 @@ export class GameScene extends Phaser.Scene {
   private totalWipeCalls = 0
   private wasteWipeCalls = 0
   private isFinished = false
+  private isPaused = false
   private maskLeft = 0
   private maskTop = 0
   private maskWidth = 0
@@ -251,6 +265,7 @@ export class GameScene extends Phaser.Scene {
     this.cameras.main.fadeIn(BALANCING.sceneFadeDuration, 0, 0, 0)
 
     this.isFinished = false
+    this.isPaused = false
     this.timeElapsedMs = 0
     this.totalWipeCalls = 0
     this.wasteWipeCalls = 0
@@ -287,6 +302,7 @@ export class GameScene extends Phaser.Scene {
     this.createVehicleAndDirt()
     this.createParticles()
     this.createHUD()
+    this.createPauseUI()
     this.checkAndUnlockTools()
     this.createToolsUI()
     this.setupInput()
@@ -310,7 +326,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   update(_time: number, delta: number): void {
-    if (this.isFinished || this.phase !== 'cleaning') return
+    if (this.isFinished || this.isPaused || this.phase !== 'cleaning') return
     this.timeElapsedMs += delta
     this.timerText.setText(`${Math.floor(this.timeElapsedMs / 1000)}s`)
     if (this.wrongToolWarningTimer > 0) this.wrongToolWarningTimer -= delta
@@ -318,10 +334,20 @@ export class GameScene extends Phaser.Scene {
   }
 
   shutdown(): void {
+    PokiBridge.gameplayStop('scene_shutdown')
     this.input.off(Phaser.Input.Events.POINTER_DOWN)
     this.input.off(Phaser.Input.Events.POINTER_MOVE)
     this.input.off(Phaser.Input.Events.POINTER_UP)
     this.stopSprayLoop()
+    this.pauseOverlay?.destroy()
+    this.pauseButton?.destroy()
+    this.pauseResumeButton?.destroy()
+    this.pauseReplayButton?.destroy()
+    this.pauseMenuButton?.destroy()
+    this.escKey?.destroy()
+    this.targetPartTween?.stop()
+    this.targetPartOverlay?.destroy()
+    this.targetPartLabel?.destroy()
     if (this.toolHandTween?.isPlaying()) this.toolHandTween.stop()
     this.coachOverrideTimer?.remove(false)
   }
@@ -577,33 +603,51 @@ export class GameScene extends Phaser.Scene {
     const dt = this.level.dirtType
 
     if (dt === 'dust') {
-      dirtGen.fillStyle(0xb9b9b9, 0.78)
+      dirtGen.fillStyle(0xc8c8c2, 0.74)
       dirtGen.fillRect(0, 0, vw, vh)
       // Slightly uneven blotches
-      dirtGen.fillStyle(0x8f8f8f, 0.28)
-      for (let i = 0; i < 24; i++) {
+      dirtGen.fillStyle(0x8f8f86, 0.22)
+      for (let i = 0; i < 34; i++) {
         dirtGen.fillCircle(
           Phaser.Math.Between(0, vw),
           Phaser.Math.Between(0, vh),
-          Phaser.Math.Between(12, 42)
+          Phaser.Math.Between(8, 32)
         )
+      }
+      dirtGen.lineStyle(2, 0xe7e3d8, 0.2)
+      for (let i = 0; i < 10; i++) {
+        const y = Phaser.Math.Between(20, vh - 20)
+        dirtGen.beginPath()
+        dirtGen.moveTo(Phaser.Math.Between(0, 30), y)
+        dirtGen.lineTo(Phaser.Math.Between(vw - 45, vw), y + Phaser.Math.Between(-8, 8))
+        dirtGen.strokePath()
       }
     } else {
       // mud / oil / rust — richer colour, more blobs
-      const base  = dt === 'mud' ? 0x90745f : dt === 'oil' ? 0x404040 : 0x915235
-      const blob  = dt === 'mud' ? 0x695645 : dt === 'oil' ? 0x1f1f1f : 0x70361f
-      const baseAlpha = dt === 'oil' ? 0.72 : 0.78
-      const blobAlpha = dt === 'oil' ? 0.62 : 0.68
-      const blobCount = dt === 'rust' ? 50 : 42
+      const base  = dt === 'mud' ? 0x8d623f : dt === 'oil' ? 0x1d2024 : 0x9c4f2e
+      const blob  = dt === 'mud' ? 0x5d3d27 : dt === 'oil' ? 0x050607 : 0x6f2d18
+      const baseAlpha = dt === 'oil' ? 0.66 : 0.68
+      const blobAlpha = dt === 'oil' ? 0.74 : 0.76
+      const blobCount = dt === 'rust' ? 58 : dt === 'oil' ? 44 : 52
       dirtGen.fillStyle(base, baseAlpha)
       dirtGen.fillRect(0, 0, vw, vh)
       dirtGen.fillStyle(blob, blobAlpha)
       for (let i = 0; i < blobCount; i++) {
-        dirtGen.fillCircle(
-          Phaser.Math.Between(0, vw),
-          Phaser.Math.Between(0, vh),
-          Phaser.Math.Between(10, 34)
-        )
+        const x = Phaser.Math.Between(0, vw)
+        const y = Phaser.Math.Between(0, vh)
+        if (dt === 'oil') {
+          dirtGen.fillEllipse(x, y, Phaser.Math.Between(18, 52), Phaser.Math.Between(10, 32))
+          dirtGen.fillStyle(0x56606b, 0.18)
+          dirtGen.fillEllipse(x - 3, y - 3, Phaser.Math.Between(10, 26), Phaser.Math.Between(5, 14))
+          dirtGen.fillStyle(blob, blobAlpha)
+        } else {
+          dirtGen.fillCircle(x, y, Phaser.Math.Between(dt === 'rust' ? 8 : 12, dt === 'rust' ? 26 : 34))
+          if (dt === 'mud') {
+            dirtGen.fillStyle(0xb18a66, 0.26)
+            dirtGen.fillCircle(x - 4, y - 5, Phaser.Math.Between(4, 11))
+            dirtGen.fillStyle(blob, blobAlpha)
+          }
+        }
       }
     }
 
@@ -764,6 +808,146 @@ export class GameScene extends Phaser.Scene {
     }).setOrigin(1, 0)
   }
 
+  private createPauseUI(): void {
+    this.pauseButton = new UIButton({
+      scene: this,
+      x: GAME_CONFIG.width - 34,
+      y: 34,
+      width: 44,
+      height: 36,
+      label: 'II',
+      fontSize: 16,
+      color: 0x2c3e50,
+      hoverColor: 0x3d5166,
+      pressColor: 0x1a252f,
+      onClick: () => this.togglePause()
+    })
+    this.pauseButton.setDepth(260)
+
+    const backdrop = this.add.rectangle(
+      GAME_CONFIG.width / 2,
+      GAME_CONFIG.height / 2,
+      GAME_CONFIG.width,
+      GAME_CONFIG.height,
+      0x000000,
+      0.62
+    )
+    const panel = this.add.graphics()
+    panel.fillStyle(0x16213e, 0.95)
+    panel.fillRoundedRect(CX - 140, CY - 120, 280, 240, 18)
+    panel.lineStyle(2, 0x4a90d9, 0.35)
+    panel.strokeRoundedRect(CX - 140, CY - 120, 280, 240, 18)
+
+    const title = this.add.text(CX, CY - 88, 'PAUSED', {
+      fontFamily: 'Arial Black, Arial, sans-serif',
+      fontSize: '28px',
+      color: '#ffffff',
+      resolution: 2
+    }).setOrigin(0.5)
+
+    this.pauseResumeButton = new UIButton({
+      scene: this,
+      x: CX,
+      y: CY - 20,
+      width: 190,
+      height: 54,
+      label: 'RESUME',
+      fontSize: 22,
+      color: 0x27ae60,
+      hoverColor: 0x2ecc71,
+      pressColor: 0x1e8449,
+      onClick: () => this.resumeGame()
+    })
+
+    this.pauseReplayButton = new UIButton({
+      scene: this,
+      x: CX - 62,
+      y: CY + 54,
+      width: 112,
+      height: 46,
+      label: 'REPLAY',
+      fontSize: 14,
+      color: 0x4a90d9,
+      hoverColor: 0x5ba3f5,
+      pressColor: 0x357abd,
+      onClick: () => this.replayFromPause()
+    })
+
+    this.pauseMenuButton = new UIButton({
+      scene: this,
+      x: CX + 62,
+      y: CY + 54,
+      width: 112,
+      height: 46,
+      label: 'MENU',
+      fontSize: 14,
+      color: 0x2c3e50,
+      hoverColor: 0x3d5166,
+      pressColor: 0x1a252f,
+      onClick: () => this.menuFromPause()
+    })
+
+    this.pauseOverlay = this.add.container(CX, CY, [backdrop, panel, title])
+    this.pauseOverlay.setDepth(900)
+    this.pauseOverlay.setVisible(false)
+
+    this.pauseResumeButton.setDepth(910)
+    this.pauseReplayButton.setDepth(910)
+    this.pauseMenuButton.setDepth(910)
+    this.pauseResumeButton.setVisible(false)
+    this.pauseReplayButton.setVisible(false)
+    this.pauseMenuButton.setVisible(false)
+  }
+
+  private togglePause(): void {
+    if (this.isFinished || this.phase !== 'cleaning') return
+    if (this.isPaused) {
+      this.resumeGame()
+      return
+    }
+    this.pauseGame()
+  }
+
+  private pauseGame(): void {
+    if (this.isPaused || this.isFinished || this.phase !== 'cleaning') return
+    this.isPaused = true
+    this.stopSprayLoop()
+    PokiBridge.gameplayStop('pause')
+    this.pauseOverlay?.setVisible(true)
+    this.pauseResumeButton?.setVisible(true)
+    this.pauseReplayButton?.setVisible(true)
+    this.pauseMenuButton?.setVisible(true)
+    this.pauseButton?.setText('>')
+  }
+
+  private resumeGame(): void {
+    if (!this.isPaused || this.isFinished || this.phase !== 'cleaning') return
+    this.isPaused = false
+    PokiBridge.gameplayStart('resume')
+    this.pauseOverlay?.setVisible(false)
+    this.pauseResumeButton?.setVisible(false)
+    this.pauseReplayButton?.setVisible(false)
+    this.pauseMenuButton?.setVisible(false)
+    this.pauseButton?.setText('II')
+  }
+
+  private replayFromPause(): void {
+    const levelId = this.level.id
+    this.cameras.main.fadeOut(BALANCING.sceneFadeDuration, 0, 0, 0)
+    this.cameras.main.once(
+      Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE,
+      () => this.scene.start('GameScene', { levelId })
+    )
+  }
+
+  private menuFromPause(): void {
+    this.cameras.main.fadeOut(BALANCING.sceneFadeDuration, 0, 0, 0)
+    this.cameras.main.once(
+      Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE,
+      () => this.scene.start('MenuScene')
+    )
+  }
+
   private createCustomerBubble(): void {
     const bubble = this.add.graphics()
     bubble.fillStyle(0xffffff, 0.94)
@@ -856,7 +1040,9 @@ export class GameScene extends Phaser.Scene {
     this.finishArrivalAtTarget()
     this.phase = 'cleaning'
     this.hasPlayerStarted = true
+    PokiBridge.gameplayStart('cleaning_phase_entered')
     this.setCoachBaseMessage(this.getActiveCoachInstruction())
+    this.updateTargetPartOverlay()
 
     if (this.customerBubble) {
       this.tweens.add({
@@ -937,33 +1123,32 @@ export class GameScene extends Phaser.Scene {
 
   private updateTopHint(): void {
     if (!this.topHintText) return
-    this.topHintText.setText(`${this.level.dirtType.toUpperCase()} / ${this.getRecommendedToolName()}`)
+    const part = this.getPriorityDirtyPartLabel()
+    const suffix = part ? ` / ${part.toUpperCase()}` : ''
+    this.topHintText.setText(`${this.getRecommendedToolName()} ${this.level.dirtType.toUpperCase()}${suffix}`)
   }
 
   private getActiveCoachInstruction(): string {
     const targetPart = this.getPriorityDirtyPartLabel()
     const recommended = this.getRecommendedToolName()
     const step = this.getCurrentSequenceStep()
+    const targetSuffix = targetPart ? ` ON ${targetPart.toUpperCase()}` : ''
 
     if (step === 'fan') {
-      return targetPart ? `Sweep dust off ${targetPart}` : 'Sweep dust with FAN'
+      return `FAN DUST${targetSuffix}`
     }
 
     if (step === 'jet') {
-      return targetPart
-        ? `Now blast ${targetPart} with ${recommended}`
-        : `Now blast with ${recommended}`
+      return this.requiresPrep()
+        ? `RINSE FOAM${targetSuffix}`
+        : `JET DUST${targetSuffix}`
     }
 
     if (step === 'hot') {
-      return targetPart
-        ? `Heat the ${this.level.dirtType} on ${targetPart}`
-        : `Heat the ${this.level.dirtType} first`
+      return `HOT ${this.level.dirtType.toUpperCase()}${targetSuffix}`
     }
 
-    return targetPart
-      ? `${recommended} the ${this.level.dirtType} on ${targetPart} first`
-      : `${recommended} the ${this.level.dirtType} first`
+    return `${recommended} ${this.level.dirtType.toUpperCase()}${targetSuffix}`
   }
 
   private setCoachBaseMessage(message: string): void {
@@ -1088,6 +1273,73 @@ export class GameScene extends Phaser.Scene {
     this.updateToolHand(recommended)
   }
 
+  private updateTargetPartOverlay(): void {
+    if (this.phase !== 'cleaning' || this.isFinished) {
+      this.targetPartOverlay?.setVisible(false)
+      this.targetPartLabel?.setVisible(false)
+      return
+    }
+
+    const part = this.getPriorityDirtyPart()
+    if (!part) {
+      this.targetPartOverlay?.setVisible(false)
+      this.targetPartLabel?.setVisible(false)
+      return
+    }
+
+    if (!this.targetPartOverlay) {
+      this.targetPartOverlay = this.add.graphics().setDepth(18)
+      this.targetPartLabel = this.add.text(0, 0, '', {
+        fontFamily: 'Arial Black, Arial, sans-serif',
+        fontSize: '12px',
+        color: '#ffffff',
+        stroke: '#10233a',
+        strokeThickness: 4,
+        resolution: 2
+      }).setOrigin(0.5).setDepth(220)
+    }
+
+    this.targetPartOverlay.clear()
+    this.targetPartOverlay.setVisible(true).setAlpha(0.7)
+    this.targetPartLabel?.setVisible(true)
+    this.targetPartOverlay.lineStyle(3, 0x8fd3ff, 0.78)
+    this.targetPartOverlay.fillStyle(0x8fd3ff, 0.08)
+
+    for (const rect of part.rects) {
+      this.targetPartOverlay.fillRoundedRect(this.maskLeft + rect.x, this.maskTop + rect.y, rect.width, rect.height, 10)
+      this.targetPartOverlay.strokeRoundedRect(this.maskLeft + rect.x, this.maskTop + rect.y, rect.width, rect.height, 10)
+    }
+
+    this.targetPartLabel?.setText(part.label.toUpperCase())
+    this.targetPartLabel?.setPosition(part.centerX, Math.max(72, part.centerY - 36))
+
+    if (this.currentTargetPartKey !== part.key) {
+      this.currentTargetPartKey = part.key
+      this.targetPartTween?.stop()
+      this.tweens.killTweensOf(this.targetPartOverlay)
+      this.targetPartOverlay.setAlpha(0.25)
+      this.targetPartLabel?.setScale(0.88)
+      this.targetPartTween = this.tweens.add({
+        targets: this.targetPartLabel,
+        alpha: 1,
+        scaleX: 1.06,
+        scaleY: 1.06,
+        duration: 540,
+        yoyo: true,
+        repeat: -1,
+        ease: 'Sine.InOut'
+      })
+      this.tweens.add({
+        targets: this.targetPartOverlay,
+        alpha: 0.95,
+        duration: 540,
+        yoyo: true,
+        repeat: -1,
+        ease: 'Sine.InOut'
+      })
+    }
+  }
+
   private animateToolSelection(key: string): void {
     const icon = this.toolIcons[key]
     const back = this.toolBacks[key]
@@ -1192,8 +1444,11 @@ export class GameScene extends Phaser.Scene {
   // ─── Input ────────────────────────────────────────────────────────────────
 
   private setupInput(): void {
+    this.escKey = this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.ESC)
+    this.escKey?.on('down', () => this.togglePause(), this)
+
     this.input.on(Phaser.Input.Events.POINTER_DOWN, (ptr: Phaser.Input.Pointer) => {
-      if (this.isFinished) return
+      if (this.isFinished || this.isPaused) return
       if (this.phase === 'arrival') {
         this.startCleaningPhase()
         return
@@ -1211,7 +1466,7 @@ export class GameScene extends Phaser.Scene {
     })
 
     this.input.on(Phaser.Input.Events.POINTER_MOVE, (ptr: Phaser.Input.Pointer) => {
-      if (!ptr.isDown || this.isFinished || this.phase !== 'cleaning') return
+      if (!ptr.isDown || this.isFinished || this.isPaused || this.phase !== 'cleaning') return
 
       const point = this.getPointerPosition(ptr)
       const dist = Phaser.Math.Distance.Between(
@@ -1235,8 +1490,6 @@ export class GameScene extends Phaser.Scene {
 
       this.prevPointerX = point.sceneX
       this.prevPointerY = point.sceneY
-
-      this.emitToolTrailEffect(point.sceneX, point.sceneY)
     })
 
     this.input.on(Phaser.Input.Events.POINTER_UP, () => {
@@ -1297,6 +1550,7 @@ export class GameScene extends Phaser.Scene {
     let stagedNow = 0
     let touchedDirty = 0
     let blockedByOrder = 0
+    let canCleanTouched = 0
     const startCol = Math.max(0, Math.floor((localX - radius) / this.CELL_SIZE))
     const gridCols = this.grid[0] ? this.grid[0].length - 1 : 0
     const endCol   = Math.min(gridCols, Math.floor((localX + radius) / this.CELL_SIZE))
@@ -1338,6 +1592,7 @@ export class GameScene extends Phaser.Scene {
           continue
         }
 
+        canCleanTouched++
         const cleanStrength = this.getCleanStrengthForState(this.activeTool, state, isRecommendedTool)
         this.layerGrid[r][c] = Math.max(0, this.layerGrid[r][c] - cleanStrength)
         if (this.layerGrid[r][c] <= 0) {
@@ -1359,42 +1614,96 @@ export class GameScene extends Phaser.Scene {
     if (usedHotThisWipe) {
       this.emitHotSteamEffect(this.maskLeft + localX, this.maskTop + localY)
     }
+    if (canCleanTouched > 0) {
+      this.dirtRT.erase(this.brush, localX - radius, localY - radius)
+      this.foamRT.erase(this.brush, localX - radius, localY - radius)
+    }
 
     this.totalWipeCalls++
-    if (cellsCleanedNow === 0) this.wasteWipeCalls++
+    const wipeResult: WipeResult = cellsCleanedNow > 0
+      ? 'cleaned'
+      : stagedNow > 0
+        ? 'advanced'
+        : blockedByOrder > 0 && touchedDirty > 0
+          ? 'blocked_wrong_order'
+          : touchedDirty > 0
+            ? 'wrong_tool'
+            : 'empty'
+    if (wipeResult !== 'cleaned' && wipeResult !== 'advanced') this.wasteWipeCalls++
     if (cellsCleanedNow > 0 && this.time.now - this.lastClearSfxMs >= BALANCING.clearSfxCooldownMs) {
       AudioManager.playSfx(this, 'sfx_clear', 0.35)
       this.lastClearSfxMs = this.time.now
     }
 
-    if (cellsCleanedNow > 0) {
+    if (wipeResult === 'cleaned') {
+      this.emitSuccessfulWipeFeedback(localX, localY, cellsCleanedNow)
       this.showGoodToolFeedback()
       this.streakCells += cellsCleanedNow
       this.checkStreakMilestone()
-    } else if (stagedNow > 0) {
+    } else if (wipeResult === 'advanced') {
+      this.emitAdvancedWipeFeedback(localX, localY)
       this.showPrepFeedback()
-    } else if (blockedByOrder > 0 && touchedDirty > 0) {
+    } else if (wipeResult === 'blocked_wrong_order') {
       this.streakCells = 0
       this.lastStreakMilestone = 0
       this.showPrepWarning()
-    } else if (!isRecommendedTool && touchedDirty > 0) {
+    } else if (wipeResult === 'wrong_tool' && !isRecommendedTool) {
       this.streakCells = 0
       this.lastStreakMilestone = 0
       this.showWrongToolWarning()
     }
 
-    if (cellsCleanedNow === 0 && stagedNow === 0 && touchedDirty > 0 && !isRecommendedTool) {
-      this.dirtRT.erase(this.weakBrush, localX - radius, localY - radius)
+    if ((wipeResult === 'blocked_wrong_order' || wipeResult === 'wrong_tool') && touchedDirty > 0) {
       this.emitWeakScratchEffect(this.maskLeft + localX, this.maskTop + localY)
     }
 
     this.setCoachBaseMessage(this.getActiveCoachInstruction())
+    this.updateTargetPartOverlay()
     this.updateToolHighlight()
     this.updateTopHint()
     this.updateProgress()
   }
 
   // ─── Progress & Completion ────────────────────────────────────────────────
+
+  private emitSuccessfulWipeFeedback(localX: number, localY: number, cellsCleaned: number): void {
+    const sceneX = this.maskLeft + localX
+    const sceneY = this.maskTop + localY
+    this.emitToolTrailEffect(sceneX, sceneY)
+    this.sparkleEmitter.emitParticleAt(sceneX, sceneY, Math.min(8, Math.max(2, Math.floor(cellsCleaned / 2))))
+
+    const shine = this.add.graphics().setDepth(19)
+    shine.lineStyle(3, 0xffffff, 0.42)
+    shine.beginPath()
+    shine.moveTo(sceneX - 14, sceneY + 8)
+    shine.lineTo(sceneX + 16, sceneY - 10)
+    shine.strokePath()
+    this.tweens.add({
+      targets: shine,
+      alpha: 0,
+      y: shine.y - 14,
+      duration: 340,
+      ease: 'Sine.Out',
+      onComplete: () => shine.destroy()
+    })
+  }
+
+  private emitAdvancedWipeFeedback(localX: number, localY: number): void {
+    const sceneX = this.maskLeft + localX
+    const sceneY = this.maskTop + localY
+    this.emitToolTrailEffect(sceneX, sceneY)
+
+    const ring = this.add.circle(sceneX, sceneY, 10, 0x8fd3ff, 0.18).setDepth(22)
+    this.tweens.add({
+      targets: ring,
+      alpha: 0,
+      scaleX: 2.4,
+      scaleY: 2.4,
+      duration: 260,
+      ease: 'Sine.Out',
+      onComplete: () => ring.destroy()
+    })
+  }
 
   private updateProgress(): void {
     const ratio = Math.min(1, this.cleanCells / this.totalCells)
@@ -1414,8 +1723,12 @@ export class GameScene extends Phaser.Scene {
 
   private triggerComplete(): void {
     this.isFinished = true
+    this.isPaused = false
     this.phase = 'complete'
+    PokiBridge.gameplayStop('level_complete')
     this.stopSprayLoop()
+    this.targetPartOverlay?.setVisible(false)
+    this.targetPartLabel?.setVisible(false)
 
     // Camera punch: celebratory shake
     this.cameras.main.shake(380, 0.01)
@@ -1907,8 +2220,20 @@ export class GameScene extends Phaser.Scene {
     this.updatePartsHud()
 
     this.sparkleEmitter.explode(18, part.centerX, part.centerY)
+    if (this.targetPartOverlay && this.targetPartLabel) {
+      this.targetPartOverlay.setAlpha(1)
+      this.targetPartLabel.setScale(1.16)
+      this.tweens.add({
+        targets: this.targetPartLabel,
+        scaleX: 1,
+        scaleY: 1,
+        duration: 180,
+        ease: 'Back.Out'
+      })
+    }
     AudioManager.playSfx(this, 'sfx_clear', 0.45)
     this.showCoachTemporary(`${part.label} clean +$${BALANCING.cash.partCompleteCash}`)
+    this.updateTargetPartOverlay()
   }
 
   private updatePartsHud(): void {

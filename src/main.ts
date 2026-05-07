@@ -18,6 +18,7 @@ import { ScaleManager } from './core/ScaleManager'
 import { GAME_CONFIG } from './data/gameConfig'
 import { config as runtimeConfig } from './core/Config'
 import { registerSparkleWashTestBridge } from './dev/testBridge'
+import { PokiBridge } from './lib/poki/PokiBridge'
 
 const isAutomatedBrowser = runtimeConfig.isDev && navigator.webdriver === true
 
@@ -38,12 +39,7 @@ const config: Phaser.Types.Core.GameConfig = {
   },
 
   // ── Poki Plugin ────────────────────────────────────────────────────────────
-  // Scene keys MUST match the keys used in the scene constructors above.
-  // The plugin handles:
-  //   • gameLoadingFinished  — auto-fired when PreloadScene finishes loading
-  //   • gameplayStart        — auto-fired when GameScene starts
-  //   • gameplayStop         — auto-fired when GameScene stops
-  //   • Input/audio muting   — during ad breaks
+  // We keep the plugin loaded, but lifecycle events are emitted manually via PokiBridge.
   plugins: {
     global: [
       {
@@ -51,9 +47,7 @@ const config: Phaser.Types.Core.GameConfig = {
         key: 'poki',
         start: true,
         data: {
-          loadingSceneKey: 'PreloadScene',
-          gameplaySceneKey: 'GameScene',
-          autoCommercialBreak: true
+          autoCommercialBreak: false
         }
       }
     ]
@@ -77,4 +71,5 @@ const config: Phaser.Types.Core.GameConfig = {
 // Boot the game
 const game = new Phaser.Game(config)
 
+PokiBridge.init(game)
 registerSparkleWashTestBridge(game)

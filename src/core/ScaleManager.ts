@@ -2,30 +2,27 @@
  * ScaleManager.ts
  * Manages responsive canvas scaling.
  * - Maintains 9:16 portrait aspect ratio on all screen sizes
- * - Handles orientation change events
+ * - Supports both portrait and landscape without blocking overlays
  * - Works with Phaser's built-in scale manager (Scale.FIT mode)
  *
  * Usage: Call ScaleManager.init() once in BootScene.
  * The Phaser config in main.ts already sets scale mode — this class
- * adds orientation-change handling and exposes helpers.
+ * provides scale config and viewport helpers.
  */
 
 import { GAME_CONFIG } from '../data/gameConfig'
 
 export class ScaleManager {
-  private static orientationWarning: HTMLElement | null = null
-
   /**
-   * Initializes orientation change handling.
+   * Initializes scale-related runtime behavior.
    * Call once from BootScene.
    */
   static init(): void {
-    ScaleManager.handleOrientationChange()
-    window.addEventListener('orientationchange', () => {
-      // Small delay to let the browser finish rotating
-      setTimeout(() => ScaleManager.handleOrientationChange(), 100)
-    })
-    window.addEventListener('resize', () => ScaleManager.handleOrientationChange())
+    // Defensive cleanup: remove stale overlay from older builds/hot-reload.
+    const staleWarning = document.getElementById('orientation-warning')
+    if (staleWarning) {
+      staleWarning.remove()
+    }
   }
 
   /**
@@ -63,47 +60,5 @@ export class ScaleManager {
    */
   static get viewportHeight(): number {
     return window.innerHeight
-  }
-
-  private static handleOrientationChange(): void {
-    if (ScaleManager.isWrongOrientation()) {
-      ScaleManager.showOrientationWarning()
-    } else {
-      ScaleManager.hideOrientationWarning()
-    }
-  }
-
-  private static showOrientationWarning(): void {
-    if (ScaleManager.orientationWarning) return
-
-    const el = document.createElement('div')
-    el.id = 'orientation-warning'
-    el.style.cssText = `
-      position: fixed;
-      inset: 0;
-      z-index: 9999;
-      background: #1a1a2e;
-      color: #ffffff;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      font-family: sans-serif;
-      font-size: 18px;
-      text-align: center;
-      padding: 24px;
-    `
-    el.innerHTML = `
-      <div style="font-size: 48px; margin-bottom: 16px;">📱</div>
-      <div>Please rotate your device to portrait mode</div>
-    `
-    document.body.appendChild(el)
-    ScaleManager.orientationWarning = el
-  }
-
-  private static hideOrientationWarning(): void {
-    if (!ScaleManager.orientationWarning) return
-    ScaleManager.orientationWarning.remove()
-    ScaleManager.orientationWarning = null
   }
 }
