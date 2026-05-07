@@ -57,7 +57,6 @@ export class ResultScene extends Phaser.Scene {
   }
 
   private enterKey!: Phaser.Input.Keyboard.Key
-  private rKey!: Phaser.Input.Keyboard.Key
   private rewardButton?: UIButton
   private rewardStatusText!: Phaser.GameObjects.Text
   private scoreValueText!: Phaser.GameObjects.Text
@@ -152,6 +151,10 @@ export class ResultScene extends Phaser.Scene {
 
   private createHeader(): void {
     const { isLastLevel, levelId, levelName } = this.resultData
+
+    this.add.image(CX, CY - 346, 'game_logo')
+      .setOrigin(0.5)
+      .setScale(0.24)
 
     this.add.text(CX, CY - 300, 'ALL CLEAN!', {
       fontSize: '44px',
@@ -254,6 +257,7 @@ export class ResultScene extends Phaser.Scene {
     const { isLastLevel, levelId } = this.resultData
     const primaryY = CY + 204
     const secondaryY = primaryY + 62
+    const menuY = GAME_CONFIG.height - 28
 
     if (!isLastLevel) {
       new UIButton({
@@ -276,23 +280,23 @@ export class ResultScene extends Phaser.Scene {
         y: primaryY,
         width: 248,
         height: 56,
-        label: 'MENU',
-        fontSize: 22,
-        color: 0x2c3e50,
-        hoverColor: 0x3d5166,
-        pressColor: 0x1a252f,
-        onClick: () => this.goToMenu()
+        label: 'SHOP',
+        fontSize: 24,
+        color: 0x315c3d,
+        hoverColor: 0x3b704a,
+        pressColor: 0x274a31,
+        onClick: () => this.openShopModal()
       })
     }
 
     new UIButton({
       scene: this,
-      x: CX - 112,
+      x: CX,
       y: secondaryY,
-      width: 100,
-      height: 42,
+      width: 180,
+      height: 44,
       label: '🛒 SHOP',
-      fontSize: 14,
+      fontSize: 16,
       color: 0x315c3d,
       hoverColor: 0x3b704a,
       pressColor: 0x274a31,
@@ -302,25 +306,11 @@ export class ResultScene extends Phaser.Scene {
     new UIButton({
       scene: this,
       x: CX,
-      y: secondaryY,
-      width: 100,
-      height: 42,
-      label: 'REPLAY',
-      fontSize: 14,
-      color: 0x4a90d9,
-      hoverColor: 0x5ba3f5,
-      pressColor: 0x357abd,
-      onClick: () => this.replayLevel(levelId)
-    })
-
-    new UIButton({
-      scene: this,
-      x: CX + 112,
-      y: secondaryY,
-      width: 100,
-      height: 42,
+      y: menuY,
+      width: 112,
+      height: 36,
       label: 'MENU',
-      fontSize: 14,
+      fontSize: 13,
       color: 0x2c3e50,
       hoverColor: 0x3d5166,
       pressColor: 0x1a252f,
@@ -495,7 +485,6 @@ export class ResultScene extends Phaser.Scene {
 
   private setupKeyboard(): void {
     this.enterKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.ENTER)
-    this.rKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.R)
 
     const { isLastLevel, levelId } = this.resultData
     if (!isLastLevel) {
@@ -503,7 +492,6 @@ export class ResultScene extends Phaser.Scene {
     } else {
       this.enterKey.on('down', () => this.goToMenu(), this)
     }
-    this.rKey.on('down', () => this.replayLevel(levelId), this)
   }
 
   private goToLevel(levelId: number): void {
@@ -511,15 +499,6 @@ export class ResultScene extends Phaser.Scene {
       fromLevelId: this.resultData.levelId,
       toLevelId: levelId
     })
-    this.cameras.main.fadeOut(BALANCING.sceneFadeDuration, 0, 0, 0)
-    this.cameras.main.once(
-      Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE,
-      () => this.scene.start('GameScene', { levelId })
-    )
-  }
-
-  private replayLevel(levelId: number): void {
-    Analytics.track('replay_selected', { levelId })
     this.cameras.main.fadeOut(BALANCING.sceneFadeDuration, 0, 0, 0)
     this.cameras.main.once(
       Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE,
@@ -604,13 +583,12 @@ export class ResultScene extends Phaser.Scene {
 
   shutdown(): void {
     this.enterKey?.destroy()
-    this.rKey?.destroy()
   }
 
   public getDebugState(): Record<string, string | number | boolean | string[]> {
     const availableActions = this.resultData.isLastLevel
-      ? ['play_again', 'menu', 'shop']
-      : ['next_level', 'play_again', 'menu', 'shop']
+      ? ['shop', 'menu']
+      : ['next_level', 'shop', 'menu']
 
     const currentWorld = worldForLevel(this.resultData.levelId)
     const worldLevels = levelsInWorld(currentWorld)

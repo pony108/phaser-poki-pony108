@@ -52,21 +52,9 @@ function truckParts(width: number, height: number): VehiclePartDefinition[] {
   ]
 }
 
-function engineParts(width: number, height: number): VehiclePartDefinition[] {
-  return [
-    { key: 'block', label: 'Block', rects: [rect(width * 0.2, height * 0.18, width * 0.6, height * 0.34)] },
-    { key: 'hoses', label: 'Hoses', rects: [rect(width * 0.12, height * 0.52, width * 0.76, height * 0.16)] },
-    { key: 'manifold', label: 'Manifold', rects: [rect(width * 0.18, height * 0.7, width * 0.64, height * 0.18)] }
-  ]
-}
-
 export function getVehicleParts(vehicleType: number, width: number, height: number): VehiclePartDefinition[] {
   if (vehicleType === 2 || vehicleType === 3 || vehicleType === 5 || vehicleType === 6) {
     return truckParts(width, height)
-  }
-
-  if (vehicleType === 9) {
-    return engineParts(width, height)
   }
 
   return carParts(width, height)

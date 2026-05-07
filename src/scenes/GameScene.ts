@@ -28,6 +28,8 @@ interface GameDebugState {
   level: {
     id: number
     name: string
+    vehicleType: number
+    vehicleTint?: number
     dirtType: string
     dirtLayers: number
   }
@@ -47,7 +49,14 @@ interface GameDebugState {
   readyToCleanPercent: number
   toolEffectiveness: 'correct_step' | 'useful_shortcut' | 'wrong_order' | 'wrong_dirt' | 'final_clean'
   handPointerVisible: boolean
+  handPointerMode: 'tool' | 'vehicle' | 'hidden'
   handPointerTarget: string
+  handPointerSceneX: number
+  handPointerSceneY: number
+  dragGhostVisible: boolean
+  dragGhostTool: string
+  dragGhostX: number
+  dragGhostY: number
   prep: {
     required: boolean
     percent: number
@@ -199,6 +208,12 @@ export class GameScene extends Phaser.Scene {
   private toolLabels: Record<string, Phaser.GameObjects.Text> = {}
   private toolPositions: Record<string, { x: number; y: number }> = {}
   private handPointerTarget = ''
+  private handPointerMode: 'tool' | 'vehicle' | 'hidden' = 'hidden'
+  private handPointerSceneX = 0
+  private handPointerSceneY = 0
+  private dragToolGhost?: Phaser.GameObjects.Image
+  private dragToolGhostTween?: Phaser.Tweens.Tween
+  private dragToolGhostTool = ''
   private readonly progressBarW = GAME_CONFIG.width - 40
 
   // Particles
@@ -239,7 +254,9 @@ export class GameScene extends Phaser.Scene {
   private partCashBonus = 0
   private sprayLoopSound?: Phaser.Sound.BaseSound
   private lastClearSfxMs = -Infinity
+  private lastToolUseFxMs = -Infinity
   private hasTrackedFirstWipe = false
+  private hasLearnedVehicleWipeHint = false
   private streakCells = 0
   private lastStreakMilestone = 0
 
@@ -276,6 +293,9 @@ export class GameScene extends Phaser.Scene {
     this.toolLabels = {}
     this.toolPositions = {}
     this.handPointerTarget = ''
+    this.handPointerMode = 'hidden'
+    this.handPointerSceneX = 0
+    this.handPointerSceneY = 0
     this.arrivalObjects = []
     this.arrivalTargets = []
     this.arrivalSkipped = false
@@ -292,7 +312,9 @@ export class GameScene extends Phaser.Scene {
     this.vehicleParts = []
     this.partCashBonus = 0
     this.lastClearSfxMs = -Infinity
+    this.lastToolUseFxMs = -Infinity
     this.hasTrackedFirstWipe = false
+    this.hasLearnedVehicleWipeHint = false
     this.streakCells = 0
     this.lastStreakMilestone = 0
     this.coachToastQueue = []
@@ -330,6 +352,7 @@ export class GameScene extends Phaser.Scene {
     this.timeElapsedMs += delta
     this.timerText.setText(`${Math.floor(this.timeElapsedMs / 1000)}s`)
     if (this.wrongToolWarningTimer > 0) this.wrongToolWarningTimer -= delta
+    this.emitHeldToolUseFeedback()
     this.layoutCoachMessage()
   }
 
@@ -338,7 +361,12 @@ export class GameScene extends Phaser.Scene {
     this.input.off(Phaser.Input.Events.POINTER_DOWN)
     this.input.off(Phaser.Input.Events.POINTER_MOVE)
     this.input.off(Phaser.Input.Events.POINTER_UP)
+    this.input.off('pointerupoutside')
     this.stopSprayLoop()
+    this.hideDragToolGhost(true)
+    this.dragToolGhostTween?.stop()
+    this.dragToolGhost?.destroy()
+    this.dragToolGhost = undefined
     this.pauseOverlay?.destroy()
     this.pauseButton?.destroy()
     this.pauseResumeButton?.destroy()
@@ -490,45 +518,16 @@ export class GameScene extends Phaser.Scene {
   // ─── World ────────────────────────────────────────────────────────────────
 
   private createWorld(): void {
-    const bg = this.add.graphics()
-    const wallColor = this.level.world === 1 ? 0x3d5a47 : this.level.world === 2 ? 0x5a4a36 : this.level.world === 3 ? 0x3e4650 : 0x4c433d
-    const floorColor = this.level.world === 1 ? 0x49685b : this.level.world === 2 ? 0x665542 : this.level.world === 3 ? 0x46535f : 0x554d49
-    bg.fillStyle(wallColor, 1)
-    bg.fillRect(0, 0, GAME_CONFIG.width, GAME_CONFIG.height)
-
-    bg.fillStyle(floorColor, 1)
-    bg.fillRect(64, 118, GAME_CONFIG.width - 128, GAME_CONFIG.height)
-
-    bg.lineStyle(4, 0x20313a, 0.35)
-    bg.beginPath()
-    bg.moveTo(CX - 150, 0)
-    bg.lineTo(CX - 150, GAME_CONFIG.height)
-    bg.moveTo(CX + 150, 0)
-    bg.lineTo(CX + 150, GAME_CONFIG.height)
-    bg.strokePath()
-
-    bg.lineStyle(2, 0x8fd3ff, 0.18)
-    for (let y = 150; y < GAME_CONFIG.height; y += 70) {
-      bg.beginPath()
-      bg.moveTo(74, y)
-      bg.lineTo(GAME_CONFIG.width - 74, y)
-      bg.strokePath()
+    if (this.textures.exists('wash_bay_bg')) {
+      const bg = this.add.image(CX, CY, 'wash_bay_bg').setDepth(-10)
+      bg.setDisplaySize(GAME_CONFIG.width, GAME_CONFIG.height)
+      return
     }
 
-    bg.fillStyle(0x17252d, 0.5)
-    bg.fillRoundedRect(CX - 38, GAME_CONFIG.height - 255, 76, 220, 14)
-    bg.fillStyle(0x223944, 0.8)
-    bg.fillRoundedRect(CX - 26, GAME_CONFIG.height - 245, 52, 200, 10)
-
-    bg.fillStyle(0xffffff, 0.08)
-    bg.fillEllipse(CX - 95, 122, 120, 18)
-    bg.fillEllipse(CX + 95, 122, 120, 18)
-
-    bg.fillStyle(0x1d2f38, 0.75)
-    bg.fillRoundedRect(20, 110, 62, 160, 8)
-    bg.fillStyle(0x79a6b8, 0.38)
-    bg.fillRect(28, 136, 46, 8)
-    bg.fillRect(28, 184, 46, 8)
+    // Fallback for missing background texture in dev/build issues.
+    const fallback = this.add.graphics()
+    fallback.fillStyle(0x3d5a47, 1)
+    fallback.fillRect(0, 0, GAME_CONFIG.width, GAME_CONFIG.height)
   }
 
   private createVehicleAndDirt(): void {
@@ -546,7 +545,9 @@ export class GameScene extends Phaser.Scene {
       6: [210, 400], // bus
       7: [200, 320], // ATV
       8: [200, 340], // buggy
-      9: [180, 300]  // engine block
+      9: [180, 300], // white van
+      10: [180, 300], // compact car
+      11: [180, 300]  // cargo car
     }
     const [vw, vh] = sizes[vt] ?? [180, 340]
 
@@ -562,6 +563,9 @@ export class GameScene extends Phaser.Scene {
 
     // Vehicle sprite
     this.vehicleSprite = this.add.sprite(CX, CY - 80, vKey)
+    if (this.level.vehicleTint !== undefined) {
+      this.vehicleSprite.setTint(this.level.vehicleTint)
+    }
 
     // Dirt RenderTexture exactly overlays the vehicle
     this.dirtRT = this.add.renderTexture(this.maskLeft, this.maskTop, vw, vh)
@@ -607,48 +611,48 @@ export class GameScene extends Phaser.Scene {
     const dt = this.level.dirtType
 
     if (dt === 'dust') {
-      dirtGen.fillStyle(0xc8c8c2, 0.74)
-      dirtGen.fillRect(0, 0, vw, vh)
-      // Slightly uneven blotches
-      dirtGen.fillStyle(0x8f8f86, 0.22)
-      for (let i = 0; i < 34; i++) {
-        dirtGen.fillCircle(
-          Phaser.Math.Between(0, vw),
-          Phaser.Math.Between(0, vh),
-          Phaser.Math.Between(8, 32)
-        )
+      dirtGen.fillStyle(0xc8c8c2, 0.65)
+      for (let i = 0; i < 140; i++) {
+        const point = this.samplePointInDirtArea(vw, vh)
+        if (!point) continue
+        dirtGen.fillCircle(point.x, point.y, Phaser.Math.Between(8, 26))
       }
-      dirtGen.lineStyle(2, 0xe7e3d8, 0.2)
-      for (let i = 0; i < 10; i++) {
-        const y = Phaser.Math.Between(20, vh - 20)
-        dirtGen.beginPath()
-        dirtGen.moveTo(Phaser.Math.Between(0, 30), y)
-        dirtGen.lineTo(Phaser.Math.Between(vw - 45, vw), y + Phaser.Math.Between(-8, 8))
-        dirtGen.strokePath()
+      dirtGen.fillStyle(0x8f8f86, 0.28)
+      for (let i = 0; i < 58; i++) {
+        const point = this.samplePointInDirtArea(vw, vh)
+        if (!point) continue
+        dirtGen.fillCircle(point.x, point.y, Phaser.Math.Between(6, 16))
       }
     } else {
-      // mud / oil / rust — richer colour, more blobs
+      // mud / oil / rust: layered organic circles/ellipses inside vehicle area
       const base  = dt === 'mud' ? 0x8d623f : dt === 'oil' ? 0x1d2024 : 0x9c4f2e
       const blob  = dt === 'mud' ? 0x5d3d27 : dt === 'oil' ? 0x050607 : 0x6f2d18
-      const baseAlpha = dt === 'oil' ? 0.66 : 0.68
-      const blobAlpha = dt === 'oil' ? 0.74 : 0.76
-      const blobCount = dt === 'rust' ? 58 : dt === 'oil' ? 44 : 52
+      const baseAlpha = dt === 'oil' ? 0.58 : 0.62
+      const blobAlpha = dt === 'oil' ? 0.72 : 0.74
+      const baseCount = dt === 'oil' ? 120 : 132
+      const blobCount = dt === 'rust' ? 76 : dt === 'oil' ? 68 : 72
       dirtGen.fillStyle(base, baseAlpha)
-      dirtGen.fillRect(0, 0, vw, vh)
+      for (let i = 0; i < baseCount; i++) {
+        const point = this.samplePointInDirtArea(vw, vh)
+        if (!point) continue
+        dirtGen.fillCircle(point.x, point.y, Phaser.Math.Between(dt === 'rust' ? 7 : 10, dt === 'rust' ? 20 : 24))
+      }
       dirtGen.fillStyle(blob, blobAlpha)
       for (let i = 0; i < blobCount; i++) {
-        const x = Phaser.Math.Between(0, vw)
-        const y = Phaser.Math.Between(0, vh)
+        const point = this.samplePointInDirtArea(vw, vh)
+        if (!point) continue
+        const x = point.x
+        const y = point.y
         if (dt === 'oil') {
-          dirtGen.fillEllipse(x, y, Phaser.Math.Between(18, 52), Phaser.Math.Between(10, 32))
+          dirtGen.fillEllipse(x, y, Phaser.Math.Between(14, 42), Phaser.Math.Between(10, 24))
           dirtGen.fillStyle(0x56606b, 0.18)
-          dirtGen.fillEllipse(x - 3, y - 3, Phaser.Math.Between(10, 26), Phaser.Math.Between(5, 14))
+          dirtGen.fillEllipse(x - 2, y - 2, Phaser.Math.Between(8, 18), Phaser.Math.Between(5, 11))
           dirtGen.fillStyle(blob, blobAlpha)
         } else {
-          dirtGen.fillCircle(x, y, Phaser.Math.Between(dt === 'rust' ? 8 : 12, dt === 'rust' ? 26 : 34))
+          dirtGen.fillCircle(x, y, Phaser.Math.Between(dt === 'rust' ? 8 : 11, dt === 'rust' ? 22 : 28))
           if (dt === 'mud') {
             dirtGen.fillStyle(0xb18a66, 0.26)
-            dirtGen.fillCircle(x - 4, y - 5, Phaser.Math.Between(4, 11))
+            dirtGen.fillCircle(x - 3, y - 4, Phaser.Math.Between(3, 8))
             dirtGen.fillStyle(blob, blobAlpha)
           }
         }
@@ -659,7 +663,37 @@ export class GameScene extends Phaser.Scene {
     dirtGen.destroy()
   }
 
-  // ─── Particles ───────────────────────────────────────────────────────────
+  private samplePointInDirtArea(vw: number, vh: number): { x: number; y: number } | null {
+    for (let i = 0; i < 18; i++) {
+      const x = Phaser.Math.Between(0, vw)
+      const y = Phaser.Math.Between(0, vh)
+      if (this.isInsideDirtArea(x, y, vw, vh)) {
+        return { x, y }
+      }
+    }
+    return null
+  }
+
+  private isInsideDirtArea(x: number, y: number, vw: number, vh: number): boolean {
+    const padX = vw * 0.07
+    const padY = vh * 0.05
+    const left = padX
+    const right = vw - padX
+    const top = padY
+    const bottom = vh - padY
+    const width = right - left
+    const radius = Math.min(width * 0.5, vh * 0.18)
+
+    const cx = Phaser.Math.Clamp(x, left + radius, right - radius)
+    const topCy = top + radius
+    const bottomCy = bottom - radius
+
+    if (y >= topCy && y <= bottomCy && x >= left && x <= right) return true
+    return (
+      Phaser.Math.Distance.Between(x, y, cx, topCy) <= radius ||
+      Phaser.Math.Distance.Between(x, y, cx, bottomCy) <= radius
+    )
+  }
 
   private createParticles(): void {
     this.effectEmitter = this.add.particles(0, 0, 'particle', {
@@ -749,8 +783,8 @@ export class GameScene extends Phaser.Scene {
     const toolY = GAME_CONFIG.height - 56
     return {
       safeX,
-      topY: 20,
-      hintY: 46,
+      topY: 56,
+      hintY: 84,
       progressWidth: GAME_CONFIG.width - safeX * 2,
       coachY: toolY - 126,
       coachMaxWidth: GAME_CONFIG.width - safeX * 2,
@@ -773,7 +807,7 @@ export class GameScene extends Phaser.Scene {
     const barW = layout.progressWidth
     const barX = layout.safeX
     const barY = layout.topY
-    const barH = 18
+    const barH = 21
 
     // Track
     this.add.rectangle(barX, barY, barW, barH, 0x16213e).setOrigin(0, 0)
@@ -792,7 +826,7 @@ export class GameScene extends Phaser.Scene {
     const dirtLabels: Record<string, string> = {
       dust: 'DUST / FAN',
       mud: 'MUD / FOAM -> JET',
-      oil: 'OIL / FOAM -> JET',
+      oil: 'OIL / HOT -> FOAM -> JET',
       rust: 'RUST / FOAM -> JET'
     }
     this.topHintText = this.add.text(layout.safeX, layout.hintY, dirtLabels[this.level.dirtType] ?? this.level.dirtType.toUpperCase(), {
@@ -916,6 +950,7 @@ export class GameScene extends Phaser.Scene {
     if (this.isPaused || this.isFinished || this.phase !== 'cleaning') return
     this.isPaused = true
     this.stopSprayLoop()
+    this.hideDragToolGhost(true)
     PokiBridge.gameplayStop('pause')
     this.pauseOverlay?.setVisible(true)
     this.pauseResumeButton?.setVisible(true)
@@ -1058,6 +1093,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.updateToolHighlight()
+    this.hideDragToolGhost(true)
   }
 
   private startGameplayFromTouch(reason: string): void {
@@ -1215,14 +1251,16 @@ export class GameScene extends Phaser.Scene {
       const x = startX + idx * spacing
       const y = layout.toolY
 
-      const bg = this.add.circle(x, y, 36, 0x16213e).setInteractive()
-      const icon = this.add.image(x, y, 'tool_' + key).setScale(1.2)
+      const bg = this.add.circle(x, y, 36, 0x16213e).setInteractive().setDepth(220)
+      const icon = this.add.image(x, y, 'tool_' + key).setScale(1.2).setDepth(228)
       const label = this.add.text(x, y + 38, BALANCING.tools[key].name, {
-        fontSize: toolKeys.length >= 4 ? '9px' : '10px',
-        color: '#d7e2ef',
+        fontSize: toolKeys.length >= 4 ? '12px' : '13px',
+        color: '#ffffff',
         fontFamily: 'Arial, sans-serif',
-        fontStyle: 'bold'
-      }).setOrigin(0.5)
+        fontStyle: 'bold',
+        stroke: '#000000',
+        strokeThickness: 2
+      }).setOrigin(0.5).setDepth(236)
 
       this.toolBacks[key] = bg
       this.toolIcons[key] = icon
@@ -1251,10 +1289,83 @@ export class GameScene extends Phaser.Scene {
         fontSize: '12px',
         color: '#8fd3ff',
         fontStyle: 'bold'
-      }).setOrigin(0.5)
+      }).setOrigin(0.5).setDepth(236)
     }
 
+    this.createDragToolGhost()
     this.updateToolHighlight()
+  }
+
+  private createDragToolGhost(): void {
+    this.dragToolGhost = this.add.image(CX, GAME_CONFIG.height - 120, `tool_${this.activeTool}`)
+      .setDepth(219)
+      .setScale(0.95)
+      .setAlpha(0)
+      .setVisible(false)
+    this.dragToolGhostTool = this.activeTool
+  }
+
+  private showDragToolGhost(sceneX: number, sceneY: number): void {
+    if (!this.dragToolGhost || this.phase !== 'cleaning' || this.isPaused || this.isFinished) return
+    if (this.dragToolGhostTool !== this.activeTool) {
+      this.dragToolGhost.setTexture(`tool_${this.activeTool}`)
+      this.dragToolGhostTool = this.activeTool
+    }
+    this.dragToolGhostTween?.stop()
+    this.dragToolGhostTween = undefined
+    this.dragToolGhost
+      .setVisible(true)
+      .setAlpha(0.5)
+      .setPosition(sceneX + 22, sceneY - 22)
+      .setScale(0.82)
+
+    this.tweens.add({
+      targets: this.dragToolGhost,
+      scaleX: 0.95,
+      scaleY: 0.95,
+      duration: 95,
+      ease: 'Back.Out'
+    })
+  }
+
+  private moveDragToolGhost(sceneX: number, sceneY: number): void {
+    if (!this.dragToolGhost?.visible) return
+    const targetX = sceneX + 22
+    const targetY = sceneY - 22
+    this.dragToolGhost.x = Phaser.Math.Linear(this.dragToolGhost.x, targetX, 0.42)
+    this.dragToolGhost.y = Phaser.Math.Linear(this.dragToolGhost.y, targetY, 0.42)
+  }
+
+  private hideDragToolGhost(immediate = false): void {
+    if (!this.dragToolGhost) return
+    this.dragToolGhostTween?.stop()
+    this.dragToolGhostTween = undefined
+
+    if (!this.dragToolGhost.visible || immediate) {
+      this.dragToolGhost.setVisible(false).setAlpha(0).setScale(0.95)
+      return
+    }
+
+    const activePos = this.toolPositions[this.activeTool]
+    if (!activePos) {
+      this.dragToolGhost.setVisible(false).setAlpha(0).setScale(0.95)
+      return
+    }
+
+    this.dragToolGhostTween = this.tweens.add({
+      targets: this.dragToolGhost,
+      x: activePos.x,
+      y: activePos.y,
+      scaleX: 0.58,
+      scaleY: 0.58,
+      alpha: 0,
+      duration: 150,
+      ease: 'Quad.Out',
+      onComplete: () => {
+        this.dragToolGhost?.setVisible(false).setScale(0.95)
+        this.dragToolGhostTween = undefined
+      }
+    })
   }
 
   private updateToolHighlight(): void {
@@ -1391,25 +1502,38 @@ export class GameScene extends Phaser.Scene {
 
   private updateToolHand(recommended: string): void {
     if (!this.toolHand) return
-    const pos = this.toolPositions[recommended]
-    const shouldShow = this.phase !== 'complete' && !!pos && (this.phase === 'arrival' || !this.hasTrackedFirstWipe || this.activeTool !== recommended)
+    const toolPos = this.toolPositions[recommended]
+    const targetPart = this.getPriorityDirtyPart()
+    const shouldShowToolHint = this.phase !== 'complete' && !!toolPos && (this.phase === 'arrival' || this.activeTool !== recommended)
+    const shouldShowVehicleHint = this.phase === 'cleaning' && this.activeTool === recommended && !!targetPart && !this.hasLearnedVehicleWipeHint
 
-    if (!shouldShow || !pos) {
+    if (!shouldShowToolHint && !shouldShowVehicleHint) {
       this.toolHand.setAlpha(0)
       this.handPointerTarget = ''
+      this.handPointerMode = 'hidden'
+      this.handPointerSceneX = 0
+      this.handPointerSceneY = 0
       return
     }
 
-    const targetChanged = this.handPointerTarget !== recommended
-    this.handPointerTarget = recommended
-    this.toolHand.setPosition(pos.x, pos.y - 66).setAlpha(1)
+    const targetX = shouldShowVehicleHint ? targetPart!.centerX : toolPos!.x
+    const targetY = shouldShowVehicleHint ? targetPart!.centerY - 26 : toolPos!.y - 66
+    const targetName = shouldShowVehicleHint ? `vehicle:${targetPart!.key}` : recommended
+    const mode: 'tool' | 'vehicle' = shouldShowVehicleHint ? 'vehicle' : 'tool'
+    const targetChanged = this.handPointerTarget !== targetName || this.handPointerMode !== mode
+
+    this.handPointerTarget = targetName
+    this.handPointerMode = mode
+    this.handPointerSceneX = targetX
+    this.handPointerSceneY = targetY
+    this.toolHand.setPosition(targetX, targetY).setAlpha(1)
 
     if (targetChanged || !this.toolHandTween?.isPlaying()) {
       this.toolHandTween?.stop()
       this.toolHand.setScale(0.92)
       this.toolHandTween = this.tweens.add({
         targets: this.toolHand,
-        y: pos.y - 74,
+        y: targetY - 8,
         scaleX: 1.08,
         scaleY: 1.08,
         duration: 520,
@@ -1497,6 +1621,11 @@ export class GameScene extends Phaser.Scene {
       }
       if (this.isWithinMask(point.localX, point.localY)) {
         this.startSprayLoop()
+        this.showDragToolGhost(point.sceneX, point.sceneY)
+        this.emitToolUsePulse(point.sceneX, point.sceneY)
+        this.lastToolUseFxMs = this.time.now
+      } else {
+        this.hideDragToolGhost(true)
       }
       this.prevPointerX = point.sceneX
       this.prevPointerY = point.sceneY
@@ -1511,6 +1640,7 @@ export class GameScene extends Phaser.Scene {
       }
 
       const point = this.getPointerPosition(ptr)
+      this.moveDragToolGhost(point.sceneX, point.sceneY)
       const dist = Phaser.Math.Distance.Between(
         this.prevPointerX,
         this.prevPointerY,
@@ -1536,6 +1666,12 @@ export class GameScene extends Phaser.Scene {
 
     this.input.on(Phaser.Input.Events.POINTER_UP, () => {
       this.stopSprayLoop()
+      this.hideDragToolGhost()
+    })
+
+    this.input.on('pointerupoutside', () => {
+      this.stopSprayLoop()
+      this.hideDragToolGhost()
     })
   }
 
@@ -1680,11 +1816,13 @@ export class GameScene extends Phaser.Scene {
     if (wipeResult === 'cleaned') {
       this.emitSuccessfulWipeFeedback(localX, localY, cellsCleanedNow)
       this.showGoodToolFeedback()
+      if (isRecommendedTool) this.hasLearnedVehicleWipeHint = true
       this.streakCells += cellsCleanedNow
       this.checkStreakMilestone()
     } else if (wipeResult === 'advanced') {
       this.emitAdvancedWipeFeedback(localX, localY)
       this.showPrepFeedback()
+      if (isRecommendedTool) this.hasLearnedVehicleWipeHint = true
     } else if (wipeResult === 'blocked_wrong_order') {
       this.streakCells = 0
       this.lastStreakMilestone = 0
@@ -1749,16 +1887,18 @@ export class GameScene extends Phaser.Scene {
 
   private updateProgress(): void {
     const ratio = Math.min(1, this.cleanCells / this.totalCells)
-    const pct   = Math.floor(ratio * 100)
-    this.progressText.setText(`${pct}%`)
-    this.progressFill.width = this.progressBarW * ratio
+    const pct = Math.floor(ratio * 100)
+    const reachedCompletionThreshold = pct >= BALANCING.completionPercent
+    const shownPct = reachedCompletionThreshold ? 100 : pct
+    this.progressText.setText(`${shownPct}%`)
+    this.progressFill.width = this.progressBarW * (reachedCompletionThreshold ? 1 : ratio)
     const milestone = Math.floor(pct / 25) * 25
     if (milestone > this.lastProgressMilestone && milestone < 100) {
       this.lastProgressMilestone = milestone
       this.pulseProgressBar()
     }
 
-    if (pct >= BALANCING.completionPercent && !this.isFinished) {
+    if (reachedCompletionThreshold && !this.isFinished) {
       this.triggerComplete()
     }
   }
@@ -1769,14 +1909,16 @@ export class GameScene extends Phaser.Scene {
     this.phase = 'complete'
     PokiBridge.gameplayStop('level_complete')
     this.stopSprayLoop()
+    this.hideDragToolGhost(true)
     this.targetPartOverlay?.setVisible(false)
     this.targetPartLabel?.setVisible(false)
 
     // Camera punch: celebratory shake
     this.cameras.main.shake(380, 0.01)
 
-    // Flash clear remaining dirt instantly
+    // At completion threshold (95%), remove any remaining visible residue.
     this.dirtRT.clear()
+    this.foamRT.clear()
 
     // Celebration
     this.sparkleEmitter.explode(100, CX, CY - 80)
@@ -2403,6 +2545,35 @@ export class GameScene extends Phaser.Scene {
     this.dustEmitter.emitParticleAt(sceneX, sceneY, 8)
   }
 
+  private emitToolUsePulse(sceneX: number, sceneY: number): void {
+    const tool = this.activeTool
+    if (tool === 'foam') {
+      this.foamEmitter.emitParticleAt(sceneX, sceneY, 3)
+      return
+    }
+    if (tool === 'jet') {
+      this.jetEmitter.emitParticleAt(sceneX, sceneY, 2)
+      return
+    }
+    if (tool === 'hot') {
+      this.steamEmitter.emitParticleAt(sceneX, sceneY, 3)
+      return
+    }
+    this.dustEmitter.emitParticleAt(sceneX, sceneY, 3)
+  }
+
+  private emitHeldToolUseFeedback(): void {
+    const ptr = this.input.activePointer
+    if (!ptr?.isDown) return
+
+    const point = this.getPointerPosition(ptr)
+    if (!this.isWithinMask(point.localX, point.localY)) return
+    if (this.time.now - this.lastToolUseFxMs < 140) return
+
+    this.emitToolUsePulse(point.sceneX, point.sceneY)
+    this.lastToolUseFxMs = this.time.now
+  }
+
   private emitHotSteamEffect(sceneX: number, sceneY: number): void {
     this.steamEmitter.emitParticleAt(sceneX + Phaser.Math.Between(-8, 8), sceneY + Phaser.Math.Between(-8, 8), 5)
     this.sparkleEmitter.emitParticleAt(sceneX + Phaser.Math.Between(-6, 6), sceneY + Phaser.Math.Between(-6, 6), 1)
@@ -2462,6 +2633,8 @@ export class GameScene extends Phaser.Scene {
       level: {
         id: this.level.id,
         name: this.level.name,
+        vehicleType: this.level.vehicleType,
+        vehicleTint: this.level.vehicleTint,
         dirtType: this.level.dirtType,
         dirtLayers: this.level.dirtLayers
       },
@@ -2481,7 +2654,14 @@ export class GameScene extends Phaser.Scene {
       readyToCleanPercent: Math.floor(this.getPrepRatio() * 100),
       toolEffectiveness: this.getToolEffectivenessState(),
       handPointerVisible: !!this.toolHand && this.toolHand.alpha > 0,
+      handPointerMode: this.handPointerMode,
       handPointerTarget: this.handPointerTarget,
+      handPointerSceneX: this.handPointerSceneX,
+      handPointerSceneY: this.handPointerSceneY,
+      dragGhostVisible: !!this.dragToolGhost?.visible && this.dragToolGhost.alpha > 0,
+      dragGhostTool: this.dragToolGhostTool,
+      dragGhostX: this.dragToolGhost?.x ?? 0,
+      dragGhostY: this.dragToolGhost?.y ?? 0,
       prep: {
         required: this.requiresPrep(),
         percent: Math.floor(this.getPrepRatio() * 100),

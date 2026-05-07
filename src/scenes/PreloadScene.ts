@@ -121,12 +121,16 @@ export class PreloadScene extends Phaser.Scene {
   //   this.load.audio('bgm', 'assets/bgm.mp3')
 
   private loadAssets(): void {
+    this.load.image('wash_bay_bg', 'assets/background.jpg')
+    this.load.image('game_logo', 'assets/gamelogo.png')
     this.load.image('vehicle_0', 'assets/vehicles/vehicle_0.png')
     this.load.image('vehicle_1', 'assets/vehicles/vehicle_1.png')
     this.load.image('vehicle_2', 'assets/vehicles/vehicle_2.png')
     this.load.image('vehicle_3', 'assets/vehicles/vehicle_3.png')
     this.load.image('vehicle_4', 'assets/vehicles/vehicle_4.png')
     this.load.image('vehicle_9', 'assets/vehicles/vehicle_9.png')
+    this.load.image('vehicle_10', 'assets/vehicles/vehicle_10.png')
+    this.load.image('vehicle_11', 'assets/vehicles/vehicle_11.png')
     this.load.audio('spray_loop', 'assets/audio/spray_loop.wav')
     this.load.audio('sfx_clear', 'assets/audio/sfx_clear.wav')
     this.load.audio('sfx_switch', 'assets/audio/sfx_switch.wav')
@@ -134,50 +138,49 @@ export class PreloadScene extends Phaser.Scene {
     // ── Placeholder textures (generated at runtime — no files needed) ────────
 
 
-    // ── Tool icons — each nozzle has a distinct silhouette ───────────────────
+    // ── Tool icons — emoji-driven circular cards for stronger readability ───
+    const createEmojiToolTexture = (
+      key: string,
+      emoji: string,
+      fillColor: number,
+      ringColor: number
+    ): void => {
+      const size = 48
+      const cx = size / 2
+      const cy = size / 2
+      const base = this.make.graphics({ x: 0, y: 0 }, false)
+      base.fillStyle(fillColor, 1)
+      base.fillCircle(cx, cy, 21)
+      base.fillStyle(0xffffff, 0.08)
+      base.fillCircle(cx, cy - 4, 14)
+      base.lineStyle(2, ringColor, 0.95)
+      base.strokeCircle(cx, cy, 20)
+      const baseKey = `${key}_base`
+      base.generateTexture(baseKey, size, size)
+      base.destroy()
 
-    // FAN — wide blue arc (wide sponge / fan spray)
-    const fanGfx = this.make.graphics({ x: 0, y: 0 }, false)
-    fanGfx.fillStyle(0x3498db)
-    fanGfx.fillTriangle(24, 4, 4, 44, 44, 44)    // wide triangle = fan shape
-    fanGfx.fillStyle(0x5dade2, 0.7)
-    fanGfx.fillRect(20, 40, 8, 8)                 // handle stub
-    fanGfx.generateTexture('tool_fan', 48, 48)
-    fanGfx.destroy()
+      const composite = this.make.renderTexture({ x: 0, y: 0, width: size, height: size }, false)
+      composite.draw(baseKey, cx, cy)
 
-    // FOAM - soft white blob with bubbles (pre-treatment)
-    const foamGfx = this.make.graphics({ x: 0, y: 0 }, false)
-    foamGfx.fillStyle(0xeaf8ff, 0.95)
-    foamGfx.fillCircle(18, 26, 13)
-    foamGfx.fillCircle(30, 25, 12)
-    foamGfx.fillCircle(24, 16, 10)
-    foamGfx.fillCircle(24, 34, 11)
-    foamGfx.fillStyle(0x7ed6ff, 0.55)
-    foamGfx.fillCircle(15, 16, 4)
-    foamGfx.fillCircle(33, 35, 4)
-    foamGfx.fillCircle(24, 25, 3)
-    foamGfx.generateTexture('tool_foam', 48, 48)
-    foamGfx.destroy()
+      const emojiText = this.add.text(-1000, -1000, emoji, {
+        fontFamily: 'Segoe UI Emoji, Apple Color Emoji, Noto Color Emoji, Arial, sans-serif',
+        fontSize: '24px',
+        color: '#ffffff',
+        resolution: 2
+      }).setOrigin(0.5)
+      composite.draw(emojiText, cx, cy + 1)
 
-    // JET — narrow teal cone (high-pressure jet)
-    const jetGfx = this.make.graphics({ x: 0, y: 0 }, false)
-    jetGfx.fillStyle(0x1abc9c)
-    jetGfx.fillTriangle(24, 4, 20, 44, 28, 44)   // narrow triangle = jet
-    jetGfx.fillStyle(0x16a085)
-    jetGfx.fillRect(22, 38, 4, 10)               // nozzle body
-    jetGfx.generateTexture('tool_jet', 48, 48)
-    jetGfx.destroy()
+      if (this.textures.exists(key)) this.textures.remove(key)
+      composite.saveTexture(key)
+      composite.destroy()
+      emojiText.destroy()
+      this.textures.remove(baseKey)
+    }
 
-    // HOT — orange circle with steam dots (hot steam nozzle)
-    const hotGfx = this.make.graphics({ x: 0, y: 0 }, false)
-    hotGfx.fillStyle(0xe67e22)
-    hotGfx.fillCircle(24, 32, 16)                // main body
-    hotGfx.fillStyle(0xffffff, 0.8)
-    hotGfx.fillCircle(18, 14, 4)                 // steam dot
-    hotGfx.fillCircle(24, 9, 3)                  // steam dot
-    hotGfx.fillCircle(30, 14, 4)                 // steam dot
-    hotGfx.generateTexture('tool_hot', 48, 48)
-    hotGfx.destroy()
+    createEmojiToolTexture('tool_fan', '💨', 0x1e5d8d, 0x53b9ff)
+    createEmojiToolTexture('tool_foam', '🫧', 0x295d7a, 0x8ad6ff)
+    createEmojiToolTexture('tool_jet', '💦', 0x22506a, 0x55c6ff)
+    createEmojiToolTexture('tool_hot', '🔥', 0x714326, 0xffad5a)
 
     // ── Vehicle 5 — Van (grey, boxy) ─────────────────────────────────────────
     const v5 = this.make.graphics({ x: 0, y: 0 }, false)

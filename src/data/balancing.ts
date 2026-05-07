@@ -23,7 +23,7 @@ export interface ToolConfig {
 export const BALANCING = {
   // ─── Base Score ────────────────────────────────────────────────────────────
   baseScore: 1000,
-  completionPercent: 98,
+  completionPercent: 95,
   rewardedScoreBonus: 400,
   clearSfxCooldownMs: 90,
   unpreppedStrengthFactor: 0.08,
@@ -67,7 +67,7 @@ export const BALANCING = {
   // GDD: Fan (wide arc), Jet (narrow stream), Hot (medium cone + steam)
   tools: {
     fan: {
-      radius: 72,
+      radius: 31,
       strength: 0.42,
       name: 'FAN',
       role: 'fan',
@@ -78,7 +78,7 @@ export const BALANCING = {
       primaryDirt: ['dust'] as DirtType[]
     },
     foam: {
-      radius: 62,
+      radius: 25,
       strength: 1,
       name: 'FOAM',
       role: 'foam',
@@ -90,7 +90,7 @@ export const BALANCING = {
       prepOnly: true
     },
     jet: {
-      radius: 35,
+      radius: 14,
       strength: 1.35,
       name: 'JET',
       role: 'jet',
@@ -101,7 +101,7 @@ export const BALANCING = {
       primaryDirt: ['dust', 'mud', 'oil', 'rust'] as DirtType[]
     },
     hot: {
-      radius: 52,
+      radius: 21,
       strength: 0.95,
       name: 'HOT',
       role: 'hot',
@@ -131,9 +131,9 @@ export const BALANCING = {
   /** Level ID at which each tool first becomes available. */
   toolUnlockAtLevel: {
     fan: 1,   // available from the start
-    foam: 6,  // World 2 introduces pre-treatment
-    jet: 6,   // World 2 needs a pressure follow-up after foam
-    hot: 11   // World 3 starts with oil, so HOT must be available immediately.
+    foam: 2,  // First mud job introduces prep.
+    jet: 2,   // Mud needs pressure after foam, so it unlocks with FOAM.
+    hot: 10   // First oil job introduces heat.
   } as Record<string, number>,
 
   // ─── World Progression ────────────────────────────────────────────────────
@@ -142,10 +142,10 @@ export const BALANCING = {
 
   /** Inclusive [first, last] level id per world (index = world - 1). */
   worldLevelRanges: [
-    [1,  5],   // World 1 — Farm
-    [6,  10],  // World 2 — Ranch
-    [11, 15],  // World 3 — Garage
-    [16, 20]   // World 4 — Junkyard
+    [1,  7],   // World 1 — Farm
+    [8,  15],  // World 2 — Ranch
+    [16, 23],  // World 3 — Garage
+    [24, 30]   // World 4 — Junkyard
   ] as [number, number][],
 
   // ─── UI / Scene Timings ───────────────────────────────────────────────────
