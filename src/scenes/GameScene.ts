@@ -346,8 +346,12 @@ export class GameScene extends Phaser.Scene {
     this.pauseMenuButton?.destroy()
     this.escKey?.destroy()
     this.targetPartTween?.stop()
+    this.targetPartTween = undefined
     this.targetPartOverlay?.destroy()
+    this.targetPartOverlay = undefined
     this.targetPartLabel?.destroy()
+    this.targetPartLabel = undefined
+    this.currentTargetPartKey = ''
     if (this.toolHandTween?.isPlaying()) this.toolHandTween.stop()
     this.coachOverrideTimer?.remove(false)
   }
@@ -1040,7 +1044,6 @@ export class GameScene extends Phaser.Scene {
     this.finishArrivalAtTarget()
     this.phase = 'cleaning'
     this.hasPlayerStarted = true
-    PokiBridge.gameplayStart('cleaning_phase_entered')
     this.setCoachBaseMessage(this.getActiveCoachInstruction())
     this.updateTargetPartOverlay()
 
@@ -1055,6 +1058,11 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.updateToolHighlight()
+  }
+
+  private startGameplayFromTouch(reason: string): void {
+    if (PokiBridge.isGameplayActive) return
+    PokiBridge.gameplayStart(reason)
   }
 
   private finishArrivalAtTarget(): void {
@@ -1267,8 +1275,12 @@ export class GameScene extends Phaser.Scene {
     }
 
     if (this.toolSequenceText) {
-      this.toolSequenceText.setText(this.getRequiredSequence().map((toolKey) => BALANCING.tools[toolKey].name).join('  ->  '))
-      this.toolSequenceText.setAlpha(this.requiresPrep() ? 0.95 : 0.42)
+      const sequenceLabel = this.getRequiredSequence().map((toolKey) => BALANCING.tools[toolKey].name).join('  ->  ')
+      if (!this.safeSetText(this.toolSequenceText, sequenceLabel)) {
+        this.toolSequenceText = undefined
+      } else {
+        this.toolSequenceText.setAlpha(this.requiresPrep() ? 0.95 : 0.42)
+      }
     }
     this.updateToolHand(recommended)
   }
@@ -1287,8 +1299,12 @@ export class GameScene extends Phaser.Scene {
       return
     }
 
-    if (!this.targetPartOverlay) {
+    if (!this.targetPartOverlay || !this.targetPartOverlay.active) {
+      this.targetPartOverlay?.destroy()
       this.targetPartOverlay = this.add.graphics().setDepth(18)
+    }
+    if (!this.targetPartLabel || !this.targetPartLabel.active) {
+      this.targetPartLabel?.destroy()
       this.targetPartLabel = this.add.text(0, 0, '', {
         fontFamily: 'Arial Black, Arial, sans-serif',
         fontSize: '12px',
@@ -1310,7 +1326,10 @@ export class GameScene extends Phaser.Scene {
       this.targetPartOverlay.strokeRoundedRect(this.maskLeft + rect.x, this.maskTop + rect.y, rect.width, rect.height, 10)
     }
 
-    this.targetPartLabel?.setText(part.label.toUpperCase())
+    if (this.targetPartLabel && !this.safeSetText(this.targetPartLabel, part.label.toUpperCase())) {
+      this.targetPartLabel = undefined
+      return
+    }
     this.targetPartLabel?.setPosition(part.centerX, Math.max(72, part.centerY - 36))
 
     if (this.currentTargetPartKey !== part.key) {
@@ -1401,6 +1420,19 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  private safeSetText(textObject: Phaser.GameObjects.Text | undefined, value: string): boolean {
+    if (!textObject || !textObject.active || !textObject.scene) return false
+    try {
+      if (textObject.text !== value) {
+        textObject.setText(value)
+      }
+      return true
+    } catch {
+      textObject.destroy()
+      return false
+    }
+  }
+
   private updateBrush(): void {
     const tool = this.getActiveToolConfig()
     const { radius, strength } = tool
@@ -1451,8 +1483,14 @@ export class GameScene extends Phaser.Scene {
       if (this.isFinished || this.isPaused) return
       if (this.phase === 'arrival') {
         this.startCleaningPhase()
-        return
       }
+
+      if (!PokiBridge.isGameplayActive && this.phase === 'cleaning') {
+        this.startGameplayFromTouch('first_game_touch')
+      }
+
+      if (this.phase !== 'cleaning') return
+
       const point = this.getPointerPosition(ptr)
       if (!this.hasPlayerStarted && point.localX >= 0 && point.localY >= 0 && point.localX <= this.maskWidth && point.localY <= this.maskHeight) {
         this.dismissTutorial()
@@ -1467,6 +1505,10 @@ export class GameScene extends Phaser.Scene {
 
     this.input.on(Phaser.Input.Events.POINTER_MOVE, (ptr: Phaser.Input.Pointer) => {
       if (!ptr.isDown || this.isFinished || this.isPaused || this.phase !== 'cleaning') return
+
+      if (!PokiBridge.isGameplayActive) {
+        this.startGameplayFromTouch('first_game_touch')
+      }
 
       const point = this.getPointerPosition(ptr)
       const dist = Phaser.Math.Distance.Between(
